@@ -25,13 +25,13 @@ const MacroCard = ({
   current,
   target,
   unit,
-  colorClass,
+  colorVar,
 }: {
   title: string;
   current: number;
   target: number;
   unit: string;
-  colorClass: string;
+  colorVar: string;
 }) => {
   const percentage = target > 0 ? (current / target) * 100 : 0;
   return (
@@ -44,7 +44,12 @@ const MacroCard = ({
           {Math.round(current)} / {target}
           <span className="text-xs text-muted-foreground">{unit}</span>
         </div>
-        <Progress value={percentage} className="mt-2 h-2" indicatorClassName={colorClass} />
+        <Progress 
+          value={percentage} 
+          className="mt-2 h-2" 
+          style={{ '--progress-color': `hsl(${colorVar})` } as React.CSSProperties}
+          indicatorClassName="bg-[var(--progress-color)]" 
+        />
       </CardContent>
     </Card>
   );
@@ -58,50 +63,29 @@ export default function MacroSummary({ data }: MacroSummaryProps) {
         current={data.calories.current}
         target={data.calories.target}
         unit="kcal"
-        colorClass="bg-red-500"
+        colorVar="var(--chart-1)"
       />
       <MacroCard
         title="Protein"
         current={data.protein.current}
         target={data.protein.target}
         unit="g"
-        colorClass="bg-sky-500"
+        colorVar="var(--chart-2)"
       />
       <MacroCard
         title="Carbs"
         current={data.carbs.current}
         target={data.carbs.target}
         unit="g"
-        colorClass="bg-amber-500"
+        colorVar="var(--chart-4)"
       />
       <MacroCard
         title="Fat"
         current={data.fat.current}
         target={data.fat.target}
         unit="g"
-        colorClass="bg-violet-500"
+        colorVar="var(--chart-5)"
       />
     </div>
   );
-}
-
-// Add custom progress indicator colors
-// This is a bit of a hack as Progress component does not support color variants by default.
-// A better way would be to customize the Progress component.
-// For now, this global style will do.
-const customStyle = `
-.bg-red-500 { background-color: hsl(0 100% 50%); }
-.dark .bg-red-500 { background-color: hsl(0 100% 60%); }
-.bg-sky-500 { background-color: hsl(200 100% 50%); }
-.dark .bg-sky-500 { background-color: hsl(200 100% 60%); }
-.bg-amber-500 { background-color: hsl(39, 100%, 50%); }
-.dark .bg-amber-500 { background-color: hsl(39, 100%, 55%); }
-.bg-violet-500 { background-color: hsl(260 100% 60%); }
-.dark .bg-violet-500 { background-color: hsl(260 100% 70%); }
-`;
-if (typeof window !== 'undefined') {
-    const styleSheet = document.createElement("style");
-    styleSheet.type = "text/css";
-    styleSheet.innerText = customStyle;
-    document.head.appendChild(styleSheet);
 }

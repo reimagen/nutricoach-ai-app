@@ -28,17 +28,22 @@ export default function DashboardPage() {
   useEffect(() => {
     if (user) {
       const checkUserMeals = async () => {
-        const mealsCollection = collection(db, 'meals');
-        const q = query(mealsCollection, where('userId', '==', user.uid));
-        const querySnapshot = await getDocs(q);
-        setHasMeals(!querySnapshot.empty);
-        setLoading(false);
+        try {
+          const mealsCollection = collection(db, 'meals');
+          const q = query(mealsCollection, where('userId', '==', user.uid));
+          const querySnapshot = await getDocs(q);
+          setHasMeals(!querySnapshot.empty);
+        } catch (error) {
+          console.error("Error fetching user meals:", error);
+        } finally {
+          setLoading(false);
+        }
       };
       checkUserMeals();
     } else {
       setLoading(false);
     }
-  }, [user]);
+  }, [user?.uid]); // Depend only on user.uid to prevent re-fetches
 
   return (
     <AppLayout>

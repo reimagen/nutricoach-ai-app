@@ -3,7 +3,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import PhotoLogging from '@/components/logging/PhotoLogging';
 import VoiceLogging from '@/components/logging/VoiceLogging';
 import ConversationalAgent from '@/components/logging/ConversationalAgent';
-import { Mic, Camera, MessageCircle, Text } from 'lucide-react';
+import { Mic, Camera, MessageCircle } from 'lucide-react';
 
 export default function LogMealPage() {
   return (
@@ -24,7 +24,7 @@ export default function LogMealPage() {
               Conversation
             </TabsTrigger>
             <TabsTrigger value="voice">
-              <Text className="mr-2 h-4 w-4" />
+              <Mic className="mr-2 h-4 w-4" />
               Text / Voice
             </TabsTrigger>
             <TabsTrigger value="photo">

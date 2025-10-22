@@ -8,7 +8,7 @@ import {
   signInWithPopup,
 } from 'firebase/auth';
 import { auth, db } from '@/lib/firebase';
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -52,9 +52,10 @@ export default function AuthForm() {
     const provider = new GoogleAuthProvider();
     try {
       const result = await signInWithPopup(auth, provider);
-      // Check if user is new, if so, create doc
       const userDocRef = doc(db, "users", result.user.uid);
-      if (!userDocRef) {
+      const userDoc = await getDoc(userDocRef);
+      
+      if (!userDoc.exists()) {
          await setDoc(userDocRef, {
             email: result.user.email,
             displayName: result.user.displayName,

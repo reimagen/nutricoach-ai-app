@@ -36,17 +36,22 @@ const prompt = ai.definePrompt({
   name: 'estimateMacrosPrompt',
   input: {schema: EstimateMacrosInputSchema},
   output: {schema: EstimateMacrosOutputSchema},
-  prompt: `You are a nutrition expert. Given the following description of a meal, estimate the macros (calories, protein, carbs, and fat).
+  prompt: `You are an expert nutritionist. Your task is to analyze the user's meal description and return nutritional estimates.
 
-Description: {{{mealDescription}}}
+**Strict Rules:**
+1.  Analyze the user's meal description: "{{mealDescription}}".
+2.  Provide your best estimate for calories (kcal), protein (grams), carbohydrates (grams), and fat (grams).
+3.  Your output **MUST** be a valid JSON object that strictly adheres to the provided output schema.
+4.  Do **NOT** include any other text, explanations, or introductory phrases in your response. Only the JSON object is allowed.
 
-Provide your best estimate for the following, ensuring your output is only the JSON object with the requested fields:
-- estimatedKcal (number)
-- estimatedProteinGrams (number)
-- estimatedCarbGrams (number)
-- estimatedFatGrams (number)
-
-Ensure your estimates are realistic and based on typical nutritional values for common foods. Do not include explanations or additional text in your response.`,
+Example valid output:
+{
+  "estimatedKcal": 250,
+  "estimatedProteinGrams": 20,
+  "estimatedCarbGrams": 1,
+  "estimatedFatGrams": 18
+}
+`,
 });
 
 const estimateMacrosFlow = ai.defineFlow(
@@ -56,21 +61,22 @@ const estimateMacrosFlow = ai.defineFlow(
     outputSchema: EstimateMacrosOutputSchema,
   },
   async input => {
-    const response = await prompt(input);
+    const {output} = await prompt(input);
+    if (!output) {
+      throw new Error("Unable to process request. AI model did not return an output.");
+    }
 
-    // Attempt to parse the LLM output into the desired schema.  If the LLM hallucinates and includes
-    // introductory or concluding remarks, or any other text besides the data fields, then
-    // this parseFloat operation will return NaN.  In that case, consider re-wording the prompt.
-    const parsedKcal = parseFloat(response.output?.estimatedKcal?.toString() || 'NaN');
-    const parsedProtein = parseFloat(response.output?.estimatedProteinGrams?.toString() || 'NaN');
-    const parsedCarbs = parseFloat(response.output?.estimatedCarbGrams?.toString() || 'NaN');
-    const parsedFat = parseFloat(response.output?.estimatedFatGrams?.toString() || 'NaN');
+    // This robust parsing is a fallback, the strict prompt should prevent non-numeric values.
+    const parsedKcal = parseFloat(output.estimatedKcal?.toString() || '0');
+    const parsedProtein = parseFloat(output.estimatedProteinGrams?.toString() || '0');
+    const parsedCarbs = parseFloat(output.estimatedCarbGrams?.toString() || '0');
+    const parsedFat = parseFloat(output.estimatedFatGrams?.toString() || '0');
 
     return {
-      estimatedKcal: parsedKcal,
-      estimatedProteinGrams: parsedProtein,
-      estimatedCarbGrams: parsedCarbs,
-      estimatedFatGrams: parsedFat,
+      estimatedKcal: isNaN(parsedKcal) ? 0 : parsedKcal,
+      estimatedProteinGrams: isNaN(parsedProtein) ? 0 : parsedProtein,
+      estimatedCarbGrams: isNaN(parsedCarbs) ? 0 : parsedCarbs,
+      estimatedFatGrams: isNaN(parsedFat) ? 0 : parsedFat,
     };
   }
 );
