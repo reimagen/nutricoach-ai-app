@@ -2,7 +2,8 @@ import AppLayout from '@/components/layout/AppLayout';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import PhotoLogging from '@/components/logging/PhotoLogging';
 import VoiceLogging from '@/components/logging/VoiceLogging';
-import { Mic, Camera } from 'lucide-react';
+import ConversationalAgent from '@/components/logging/ConversationalAgent';
+import { Mic, Camera, MessageCircle } from 'lucide-react';
 
 export default function LogMealPage() {
   return (
@@ -13,11 +14,15 @@ export default function LogMealPage() {
         </h1>
       </div>
       <p className="text-muted-foreground">
-        Log meals naturally — by speaking or snapping a photo.
+        Log meals naturally by speaking, snapping a photo, or having a conversation.
       </p>
       <div className="mt-6">
-        <Tabs defaultValue="voice" className="w-full">
-          <TabsList className="grid w-full grid-cols-2">
+        <Tabs defaultValue="conversation" className="w-full">
+          <TabsList className="grid w-full grid-cols-3">
+            <TabsTrigger value="conversation">
+              <MessageCircle className="mr-2 h-4 w-4" />
+              Conversation
+            </TabsTrigger>
             <TabsTrigger value="voice">
               <Mic className="mr-2 h-4 w-4" />
               Voice Logging
@@ -27,6 +32,9 @@ export default function LogMealPage() {
               Photo Logging
             </TabsTrigger>
           </TabsList>
+          <TabsContent value="conversation">
+            <ConversationalAgent />
+          </TabsContent>
           <TabsContent value="voice">
             <VoiceLogging />
           </TabsContent>
