@@ -4,9 +4,8 @@ import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import { conversationalMealLogging } from '@/ai/flows/conversational-meal-logging';
-import { extractMealInfo } from '@/ai/flows/extract-meal-info';
+import { extractMealInfo, MealInfo } from '@/ai/flows/extract-meal-info';
 import { textToSpeech } from '@/ai/flows/text-to-speech';
-import { type MealInfo } from '@/ai/shared-types';
 import { Bot, Mic, User, Save, X, Send, Loader2 } from 'lucide-react';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -342,7 +341,7 @@ export default function ConversationalAgent() {
                         }
                         value={textInput}
                         onChange={(e) => setTextInput(e.target.value)}
-                        disabled={status !== AgentStatus.IDLE}
+                        disabled={status !== AgentStatus.IDLE && status !== AgentStatus.LISTENING}
                     />
                     <Button type="submit" size="icon" disabled={status !== AgentStatus.IDLE}>
                         <Send className="h-4 w-4" />

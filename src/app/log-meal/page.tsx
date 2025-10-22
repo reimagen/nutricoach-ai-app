@@ -19,7 +19,7 @@ export default function LogMealPage() {
       <div className="mt-6">
         <Tabs defaultValue="voice" className="w-full">
           <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="conversation" disabled>
+            <TabsTrigger value="conversation">
               <MessageCircle className="mr-2 h-4 w-4" />
               Conversation
             </TabsTrigger>

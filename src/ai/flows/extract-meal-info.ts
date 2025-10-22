@@ -17,6 +17,8 @@ const ExtractMealInfoInputSchema = z.object({
 });
 export type ExtractMealInfoInput = z.infer<typeof ExtractMealInfoInputSchema>;
 
+export { type MealInfo };
+
 export async function extractMealInfo(input: ExtractMealInfoInput): Promise<MealInfo> {
   return extractMealInfoFlow(input);
 }
