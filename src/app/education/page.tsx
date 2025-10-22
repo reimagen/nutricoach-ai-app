@@ -1,0 +1,61 @@
+import AppLayout from '@/components/layout/AppLayout';
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '@/components/ui/accordion';
+import { educationData } from '@/data/education';
+import { BookOpenCheck } from 'lucide-react';
+
+export default function EducationPage() {
+  const groupedByPhase = educationData.reduce((acc, lesson) => {
+    const phase = `Phase ${lesson.phase}: ${lesson.theme}`;
+    if (!acc[phase]) {
+      acc[phase] = [];
+    }
+    acc[phase].push(lesson);
+    return acc;
+  }, {} as Record<string, typeof educationData>);
+  
+  const defaultOpen = Object.keys(groupedByPhase)[0];
+
+  return (
+    <AppLayout>
+      <div className="flex items-center justify-between space-y-2">
+        <h1 className="text-3xl font-bold tracking-tight font-headline">
+          30-Day Nutrition Foundations
+        </h1>
+      </div>
+      <p className="text-muted-foreground">
+        One short, practical lesson per day to help you understand nutrition.
+      </p>
+      <div className="mt-6">
+        <Accordion type="single" collapsible className="w-full" defaultValue={defaultOpen}>
+          {Object.entries(groupedByPhase).map(([phase, lessons]) => (
+            <AccordionItem value={phase} key={phase}>
+              <AccordionTrigger className="text-xl font-headline">{phase}</AccordionTrigger>
+              <AccordionContent>
+                <div className="space-y-4">
+                  {lessons.map((lesson) => (
+                    <div key={lesson.day} className="p-4 rounded-lg border bg-card">
+                       <div className="flex items-center gap-3">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary font-bold">
+                          {lesson.day}
+                        </div>
+                        <div>
+                          <h3 className="font-semibold">{lesson.title}</h3>
+                          <p className="text-sm text-muted-foreground mt-1">{lesson.content}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+          ))}
+        </Accordion>
+      </div>
+    </AppLayout>
+  );
+}
