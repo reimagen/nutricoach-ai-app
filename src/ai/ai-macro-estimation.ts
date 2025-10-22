@@ -61,10 +61,28 @@ const estimateMacrosFlow = ai.defineFlow(
     outputSchema: EstimateMacrosOutputSchema,
   },
   async input => {
-    const {output} = await prompt(input);
-    if (!output) {
+    const {output: rawOutput} = await prompt(input);
+    if (!rawOutput) {
       throw new Error("Unable to process request. AI model did not return an output.");
     }
+    
+    // Sometimes the model returns a string containing JSON. We need to parse it.
+    let output: EstimateMacrosOutput;
+    if (typeof rawOutput === 'string') {
+        try {
+            const jsonMatch = rawOutput.match(/\{.*\}/s);
+            if (!jsonMatch) {
+                throw new Error("No valid JSON object found in the AI's string response.");
+            }
+            output = JSON.parse(jsonMatch[0]);
+        } catch (e) {
+            console.error("Failed to parse stringified JSON from AI:", e);
+            throw new Error("The AI returned a malformed response.");
+        }
+    } else {
+        output = rawOutput as EstimateMacrosOutput;
+    }
+
 
     // This robust parsing is a fallback, the strict prompt should prevent non-numeric values.
     const parsedKcal = parseFloat(output.estimatedKcal?.toString() || '0');
