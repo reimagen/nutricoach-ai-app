@@ -28,9 +28,9 @@ export default function ConversationalAgent() {
   const audioRef = useRef<HTMLAudioElement>(null);
   const conversationHistoryRef = useRef<string[]>([]);
   const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const finalTranscriptRef = useRef<string>('');
   const [lastMealData, setLastMealData] = useState<ConversationalMealLoggingOutput['mealToLog'] | null>(null);
   const [isFinalizing, setIsFinalizing] = useState(false);
+  const [currentTranscript, setCurrentTranscript] = useState('');
 
   const speak = async (text: string) => {
     setListeningState(ListeningState.RESPONDING);
@@ -49,7 +49,7 @@ export default function ConversationalAgent() {
         title: 'Speech Generation Failed',
         description: 'Could not generate audio for the response.',
       });
-      setListeningState(ListeningState.LISTENING);
+      setListeningState(ListeningState.IDLE);
     }
   };
 
@@ -84,12 +84,17 @@ export default function ConversationalAgent() {
 
   const handleQuery = async (query: string) => {
     if (!query) {
-      setListeningState(ListeningState.LISTENING);
+      if (listeningState === ListeningState.LISTENING) {
+         setListeningState(ListeningState.LISTENING);
+      } else {
+         setListeningState(ListeningState.IDLE);
+      }
       return;
     }
     setListeningState(ListeningState.PROCESSING);
     setConversation(prev => [...prev, { actor: 'user', text: query }]);
     conversationHistoryRef.current.push(`User: ${query}`);
+    setCurrentTranscript('');
 
     try {
       const result = await conversationalMealLogging({
@@ -99,6 +104,14 @@ export default function ConversationalAgent() {
       
       if (result.mealToLog) {
         setLastMealData(result.mealToLog);
+      } else if (lastMealData) {
+        // This case handles the follow-up question. The API might not return the full meal data again.
+        // We assume the user's query is the meal category.
+        const updatedMealData = {
+          ...lastMealData,
+          mealCategory: query.toLowerCase() as any, // Simple assumption
+        };
+        setLastMealData(updatedMealData);
       }
       
       await speak(result.response);
@@ -108,8 +121,6 @@ export default function ConversationalAgent() {
             setIsFinalizing(true);
             setListeningState(ListeningState.IDLE); // Stop listening to show confirmation
         } else {
-            // General question answered, don't fully reset, just go back to listening.
-            // A full reset can be done manually.
             setListeningState(ListeningState.IDLE);
         }
       }
@@ -117,6 +128,7 @@ export default function ConversationalAgent() {
     } catch (error) {
       console.error('Error in conversational flow:', error);
       await speak("Sorry, I ran into an issue. Let's try that again.");
+      setListeningState(ListeningState.IDLE);
     }
   };
 
@@ -124,26 +136,28 @@ export default function ConversationalAgent() {
     if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
     
     let interimTranscript = '';
-    let finalTranscript = '';
+    let finalTranscriptForThisSegment = '';
 
-    for (let i = 0; i < event.results.length; ++i) {
+    for (let i = event.resultIndex; i < event.results.length; ++i) {
       if (event.results[i].isFinal) {
-        finalTranscript += event.results[i][0].transcript;
+        finalTranscriptForThisSegment += event.results[i][0].transcript;
       } else {
         interimTranscript += event.results[i][0].transcript;
       }
     }
     
-    if (finalTranscript.trim()) {
-        handleQuery(finalTranscript.trim());
-        if(recognitionRef.current) recognitionRef.current.stop();
+    setCurrentTranscript(interimTranscript);
+
+    if (finalTranscriptForThisSegment.trim()) {
+        recognitionRef.current?.stop();
+        handleQuery(finalTranscriptForThisSegment.trim());
     } else {
         silenceTimerRef.current = setTimeout(() => {
-            if (interimTranscript.trim()) {
+            if (interimTranscript.trim() && listeningState === ListeningState.LISTENING) {
+                recognitionRef.current?.stop();
                 handleQuery(interimTranscript.trim());
-                 if(recognitionRef.current) recognitionRef.current.stop();
             }
-        }, 1200); 
+        }, 1500); 
     }
   };
 
@@ -175,14 +189,14 @@ export default function ConversationalAgent() {
               description: `An error occurred: ${event.error}. Please try again.`
             });
             setListeningState(ListeningState.IDLE);
-            if(recognitionRef.current) recognitionRef.current.stop();
+            recognitionRef.current?.stop();
           }
         };
         
         recognition.onend = () => {
             if (listeningState === ListeningState.LISTENING) {
                try {
-                   if(recognitionRef.current) recognitionRef.current.start();
+                   recognitionRef.current?.start();
                } catch(e) {
                    console.error("Could not restart recognition service.", e);
                    setListeningState(ListeningState.IDLE);
@@ -194,33 +208,39 @@ export default function ConversationalAgent() {
 
     if (audioRef.current) {
         audioRef.current.onended = () => {
-            if (!isFinalizing) {
+            if (!isFinalizing && listeningState === ListeningState.RESPONDING) {
                 setListeningState(ListeningState.LISTENING);
             }
         };
     }
 
     return () => {
-      // Don't stop recognition here as it's managed by state
+      recognitionRef.current?.stop();
       if (audioRef.current) audioRef.current.pause();
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
     };
-  }, [isFinalizing]); 
+  }, [isFinalizing, listeningState, toast]); 
 
 
   useEffect(() => {
-    if(listeningState === ListeningState.LISTENING) {
+    if (listeningState === ListeningState.LISTENING) {
         try {
             recognitionRef.current?.start();
         } catch(e) {
-            // This might be called if the component is in a weird state
             console.error("Could not start recognition", e);
+            if(e instanceof DOMException && e.name === 'NotAllowedError') {
+                 toast({
+                    variant: 'destructive',
+                    title: 'Microphone Access Denied',
+                    description: 'Please allow microphone access in your browser settings.',
+                });
+            }
             setListeningState(ListeningState.IDLE);
         }
     } else {
         recognitionRef.current?.stop();
     }
-  }, [listeningState]);
+  }, [listeningState, toast]);
 
   const resetConversation = () => {
     setListeningState(ListeningState.IDLE);
@@ -232,11 +252,12 @@ export default function ConversationalAgent() {
     setConversation([]);
     setLastMealData(null);
     setIsFinalizing(false);
+    setCurrentTranscript('');
   }
 
   const toggleConversation = () => {
     if (listeningState === ListeningState.IDLE && !isFinalizing) {
-      resetConversation(); // Clear old conversations before starting a new one
+      resetConversation();
       setListeningState(ListeningState.LISTENING);
       toast({ title: 'Conversation started.', description: "I'm listening." });
     } else {
@@ -281,6 +302,7 @@ export default function ConversationalAgent() {
                         : listeningState !== ListeningState.IDLE ? 'bg-blue-500 text-white'
                         : 'bg-muted text-muted-foreground'}`}
                     onClick={toggleConversation}
+                    disabled={listeningState === ListeningState.PROCESSING || listeningState === ListeningState.RESPONDING}
                 >
                     <Mic className="h-10 w-10" />
                 </button>
@@ -307,6 +329,16 @@ export default function ConversationalAgent() {
                     )}
                 </div>
             ))}
+             {currentTranscript && (
+                <div className="flex items-start gap-3 justify-end">
+                    <div className="rounded-lg p-3 max-w-[80%] shadow-sm bg-accent/50 text-accent-foreground">
+                        <p>{currentTranscript}</p>
+                    </div>
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary text-secondary-foreground shrink-0">
+                        <User className="h-5 w-5" />
+                    </div>
+                </div>
+             )}
         </div>
 
         {isFinalizing && lastMealData && (
@@ -321,10 +353,10 @@ export default function ConversationalAgent() {
                   <div key={index} className="flex justify-between items-center p-2 bg-muted/50 rounded-lg">
                     <p className="font-medium">{item.name}</p>
                     <div className="grid grid-cols-4 gap-x-2 text-xs text-right">
-                      <span>{item.macros.caloriesKcal}kcal</span>
-                      <span>{item.macros.proteinG}g P</span>
-                      <span>{item.macros.carbohydrateG}g C</span>
-                      <span>{item.macros.fatG}g F</span>
+                      <span>{Math.round(item.macros.caloriesKcal)}kcal</span>
+                      <span>{Math.round(item.macros.proteinG)}g P</span>
+                      <span>{Math.round(item.macros.carbohydrateG)}g C</span>
+                      <span>{Math.round(item.macros.fatG)}g F</span>
                     </div>
                   </div>
                 ))}
@@ -332,10 +364,10 @@ export default function ConversationalAgent() {
               <div className="flex justify-between items-center p-2 bg-muted rounded-lg font-bold">
                 <p>Total</p>
                 <div className="grid grid-cols-4 gap-x-2 text-sm text-right">
-                  <span>{lastMealData.totalMacros.caloriesKcal}kcal</span>
-                  <span>{lastMealData.totalMacros.proteinG}g P</span>
-                  <span>{lastMealData.totalMacros.carbohydrateG}g C</span>
-                  <span>{lastMealData.totalMacros.fatG}g F</span>
+                  <span>{Math.round(lastMealData.totalMacros.caloriesKcal)}kcal</span>
+                  <span>{Math.round(lastMealData.totalMacros.proteinG)}g P</span>
+                  <span>{Math.round(lastMealData.totalMacros.carbohydrateG)}g C</span>
+                  <span>{Math.round(lastMealData.totalMacros.fatG)}g F</span>
                 </div>
               </div>
             </CardContent>
@@ -355,5 +387,3 @@ export default function ConversationalAgent() {
     </Card>
   );
 }
-
-    
