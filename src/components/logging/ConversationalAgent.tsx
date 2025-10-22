@@ -1,14 +1,15 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import { conversationalMealLogging, ConversationalMealLoggingOutput } from '@/ai/flows/conversational-meal-logging';
 import { textToSpeech } from '@/ai/flows/text-to-speech';
-import { Bot, Mic, User } from 'lucide-react';
+import { Bot, Mic, User, Save, X } from 'lucide-react';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/useAuth';
+import { Button } from '@/components/ui/button';
 
 
 enum ListeningState {
@@ -29,6 +30,7 @@ export default function ConversationalAgent() {
   const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const finalTranscriptRef = useRef<string>('');
   const [lastMealData, setLastMealData] = useState<ConversationalMealLoggingOutput['mealToLog'] | null>(null);
+  const [isFinalizing, setIsFinalizing] = useState(false);
 
   const speak = async (text: string) => {
     setListeningState(ListeningState.RESPONDING);
@@ -51,22 +53,22 @@ export default function ConversationalAgent() {
     }
   };
 
-  const handleSaveMeal = async (mealData: ConversationalMealLoggingOutput['mealToLog']) => {
-      if (!mealData || !user) return;
+  const handleSaveMeal = async () => {
+      if (!lastMealData || !user) return;
 
       try {
         await addDoc(collection(db, 'users', user.uid, 'meals'), {
           uid: user.uid,
-          description: mealData.mealDescription,
-          mealCategory: mealData.mealCategory,
-          items: mealData.items,
-          macros: mealData.totalMacros,
+          description: lastMealData.mealDescription,
+          mealCategory: lastMealData.mealCategory,
+          items: lastMealData.items,
+          macros: lastMealData.totalMacros,
           source: 'conversation',
           createdAt: serverTimestamp(),
         });
         toast({
           title: 'Meal Saved!',
-          description: `Your ${mealData.mealCategory} has been added to your log.`,
+          description: `Your ${lastMealData.mealCategory} has been added to your log.`,
         });
       } catch(error) {
         console.error("Failed to save meal:", error);
@@ -75,6 +77,8 @@ export default function ConversationalAgent() {
           title: 'Save Failed',
           description: 'Could not save your meal to the database.',
         });
+      } finally {
+        resetConversation();
       }
   };
 
@@ -93,15 +97,18 @@ export default function ConversationalAgent() {
         conversationHistory: conversationHistoryRef.current,
       });
       
-      setLastMealData(result.mealToLog ?? null);
+      setLastMealData(result.mealToLog ?? lastMealData);
       
       await speak(result.response);
 
       if (result.isEndOfConversation) {
         if (result.mealToLog) {
-            await handleSaveMeal(result.mealToLog);
+            setLastMealData(result.mealToLog);
+            setIsFinalizing(true);
+            setListeningState(ListeningState.IDLE); // Stop listening to show confirmation
+        } else {
+            resetConversation();
         }
-        conversationHistoryRef.current = [];
       }
 
     } catch (error) {
@@ -182,8 +189,9 @@ export default function ConversationalAgent() {
 
     if (audioRef.current) {
         audioRef.current.onended = () => {
-            // After AI is done speaking, immediately go back to listening
-            setListeningState(ListeningState.LISTENING);
+            if (!isFinalizing) {
+                setListeningState(ListeningState.LISTENING);
+            }
         };
     }
 
@@ -192,7 +200,7 @@ export default function ConversationalAgent() {
       if (audioRef.current) audioRef.current.pause();
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
     };
-  }, [listeningState]); // Rerun setup if listeningState changes to attach correct onended handler
+  }, [isFinalizing]); 
 
 
   useEffect(() => {
@@ -208,25 +216,33 @@ export default function ConversationalAgent() {
     }
   }, [listeningState]);
 
+  const resetConversation = () => {
+    setListeningState(ListeningState.IDLE);
+    if (audioRef.current) audioRef.current.pause();
+    conversationHistoryRef.current = [];
+    setConversation([]);
+    setLastMealData(null);
+    setIsFinalizing(false);
+  }
 
   const toggleConversation = () => {
     if (listeningState === ListeningState.IDLE) {
-      setListeningState(ListeningState.LISTENING);
-       // Only clear conversation visuals and history if it's a new session
-      conversationHistoryRef.current = [];
-      setConversation([]);
+      setIsFinalizing(false);
       setLastMealData(null);
+      setConversation([]);
+      conversationHistoryRef.current = [];
+      setListeningState(ListeningState.LISTENING);
       toast({ title: 'Conversation started.', description: "I'm listening." });
     } else {
-      setListeningState(ListeningState.IDLE);
-      if (audioRef.current) audioRef.current.pause();
-      conversationHistoryRef.current = [];
-      setLastMealData(null);
+      resetConversation();
       toast({ title: 'Conversation ended.' });
     }
   };
 
   const getStatus = () => {
+      if (isFinalizing) {
+          return "Please review and confirm your meal below."
+      }
       switch(listeningState) {
           case ListeningState.IDLE:
               return "Click the mic to start a conversation.";
@@ -250,18 +266,22 @@ export default function ConversationalAgent() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4 text-center">
-        <div className="flex justify-center">
-            <button
-                className={`h-24 w-24 rounded-full flex items-center justify-center transition-all duration-300 ease-in-out
-                    ${listeningState === ListeningState.LISTENING ? 'bg-green-500 text-white shadow-lg scale-110' 
-                    : listeningState !== ListeningState.IDLE ? 'bg-blue-500 text-white'
-                    : 'bg-muted text-muted-foreground'}`}
-                onClick={toggleConversation}
-            >
-                <Mic className="h-10 w-10" />
-            </button>
-        </div>
-        <p className="min-h-[2rem] text-muted-foreground">{getStatus()}</p>
+        {!isFinalizing && (
+          <>
+            <div className="flex justify-center">
+                <button
+                    className={`h-24 w-24 rounded-full flex items-center justify-center transition-all duration-300 ease-in-out
+                        ${listeningState === ListeningState.LISTENING ? 'bg-green-500 text-white shadow-lg scale-110' 
+                        : listeningState !== ListeningState.IDLE ? 'bg-blue-500 text-white'
+                        : 'bg-muted text-muted-foreground'}`}
+                    onClick={toggleConversation}
+                >
+                    <Mic className="h-10 w-10" />
+                </button>
+            </div>
+            <p className="min-h-[2rem] text-muted-foreground">{getStatus()}</p>
+          </>
+        )}
         
         <div className="space-y-4 pt-4 text-left max-h-96 overflow-y-auto pr-4">
             {conversation.map((entry, index) => (
@@ -283,8 +303,51 @@ export default function ConversationalAgent() {
             ))}
         </div>
 
+        {isFinalizing && lastMealData && (
+          <Card className="text-left mt-4">
+            <CardHeader>
+              <CardTitle>Confirm Your Meal</CardTitle>
+              <CardDescription>{lastMealData.mealDescription}</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                {lastMealData.items.map((item, index) => (
+                  <div key={index} className="flex justify-between items-center p-2 bg-muted/50 rounded-lg">
+                    <p className="font-medium">{item.name}</p>
+                    <div className="grid grid-cols-4 gap-x-2 text-xs text-right">
+                      <span>{item.macros.caloriesKcal}kcal</span>
+                      <span>{item.macros.proteinG}g P</span>
+                      <span>{item.macros.carbohydrateG}g C</span>
+                      <span>{item.macros.fatG}g F</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="flex justify-between items-center p-2 bg-muted rounded-lg font-bold">
+                <p>Total</p>
+                <div className="grid grid-cols-4 gap-x-2 text-sm text-right">
+                  <span>{lastMealData.totalMacros.caloriesKcal}kcal</span>
+                  <span>{lastMealData.totalMacros.proteinG}g P</span>
+                  <span>{lastMealData.totalMacros.carbohydrateG}g C</span>
+                  <span>{lastMealData.totalMacros.fatG}g F</span>
+                </div>
+              </div>
+            </CardContent>
+            <CardFooter className="flex justify-end gap-2">
+              <Button variant="outline" onClick={resetConversation}>
+                <X className="mr-2 h-4 w-4" /> Cancel
+              </Button>
+              <Button onClick={handleSaveMeal}>
+                <Save className="mr-2 h-4 w-4" /> Save Meal
+              </Button>
+            </CardFooter>
+          </Card>
+        )}
+
         <audio ref={audioRef} className="hidden" />
       </CardContent>
     </Card>
   );
 }
+
+  
