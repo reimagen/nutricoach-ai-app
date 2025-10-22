@@ -5,11 +5,12 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { useToast } from '@/hooks/use-toast';
 import { conversationalMealLogging, ConversationalMealLoggingOutput } from '@/ai/flows/conversational-meal-logging';
 import { textToSpeech } from '@/ai/flows/text-to-speech';
-import { Bot, Mic, User, Save, X } from 'lucide-react';
+import { Bot, Mic, User, Save, X, Send } from 'lucide-react';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 
 
 enum ListeningState {
@@ -31,6 +32,7 @@ export default function ConversationalAgent() {
   const [lastMealData, setLastMealData] = useState<ConversationalMealLoggingOutput['mealToLog'] | null>(null);
   const [isFinalizing, setIsFinalizing] = useState(false);
   const [currentTranscript, setCurrentTranscript] = useState('');
+  const [textInput, setTextInput] = useState('');
 
   const speak = async (text: string) => {
     setListeningState(ListeningState.RESPONDING);
@@ -54,58 +56,65 @@ export default function ConversationalAgent() {
   };
 
   const handleSaveMeal = async () => {
-      if (!lastMealData || !user) {
-        toast({
-          variant: 'destructive',
-          title: 'Save Failed',
-          description: 'User or meal data is missing.',
-        });
-        return;
-      }
-      try {
-        await addDoc(collection(db, 'users', user.uid, 'meals'), {
-          uid: user.uid,
-          description: lastMealData.mealDescription,
-          mealCategory: lastMealData.mealCategory,
-          items: lastMealData.items,
-          macros: lastMealData.totalMacros,
-          source: 'conversation',
-          createdAt: serverTimestamp(),
-        });
-        toast({
-          title: 'Meal Saved!',
-          description: `Your ${lastMealData.mealCategory} has been added to your log.`,
-        });
-      } catch(error) {
-        console.error("Failed to save meal:", error);
-        toast({
-          variant: 'destructive',
-          title: 'Save Failed',
-          description: 'Could not save your meal to the database.',
-        });
-      } finally {
-        resetConversation();
-      }
+    if (!lastMealData || !user) {
+      toast({
+        variant: 'destructive',
+        title: 'Save Failed',
+        description: 'User or meal data is missing.',
+      });
+      return;
+    }
+    setIsFinalizing(false);
+    try {
+      await addDoc(collection(db, 'users', user.uid, 'meals'), {
+        uid: user.uid,
+        description: lastMealData.mealDescription,
+        mealCategory: lastMealData.mealCategory,
+        items: lastMealData.items,
+        macros: lastMealData.totalMacros,
+        source: 'conversation',
+        createdAt: serverTimestamp(),
+      });
+      toast({
+        title: 'Meal Saved!',
+        description: `Your ${lastMealData.mealCategory} has been added to your log.`,
+      });
+    } catch (error) {
+      console.error("Failed to save meal:", error);
+      toast({
+        variant: 'destructive',
+        title: 'Save Failed',
+        description: 'Could not save your meal to the database.',
+      });
+    } finally {
+      resetConversation();
+    }
   };
 
   const handleQuery = async (query: string) => {
     if (!query) {
       if (listeningState === ListeningState.LISTENING) {
-         setListeningState(ListeningState.LISTENING);
+        setListeningState(ListeningState.LISTENING);
       } else {
-         setListeningState(ListeningState.IDLE);
+        setListeningState(ListeningState.IDLE);
       }
       return;
     }
+
     setListeningState(ListeningState.PROCESSING);
     setConversation(prev => [...prev, { actor: 'user', text: query }]);
     conversationHistoryRef.current.push(`User: ${query}`);
     setCurrentTranscript('');
+    setTextInput('');
 
     try {
+      const fullConversation = isFinalizing && lastMealData
+        ? [...conversationHistoryRef.current.slice(0, -1), `User: ${lastMealData.mealDescription} ${query}`]
+        : conversationHistoryRef.current;
+
       const result = await conversationalMealLogging({
         userQuery: query,
-        conversationHistory: conversationHistoryRef.current,
+        conversationHistory: fullConversation,
       });
 
       if (result.mealToLog && result.mealToLog.mealCategory !== 'unknown') {
@@ -135,7 +144,7 @@ export default function ConversationalAgent() {
 
   const processSpeech = (event: any) => {
     if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-    
+
     let interimTranscript = '';
     let finalTranscriptForThisSegment = '';
 
@@ -146,73 +155,68 @@ export default function ConversationalAgent() {
         interimTranscript += event.results[i][0].transcript;
       }
     }
-    
+
     setCurrentTranscript(prev => prev + interimTranscript);
 
     if (finalTranscriptForThisSegment.trim()) {
-        recognitionRef.current?.stop();
-        handleQuery(finalTranscriptForThisSegment.trim());
+      recognitionRef.current?.stop();
+      handleQuery(finalTranscriptForThisSegment.trim());
     } else {
-        silenceTimerRef.current = setTimeout(() => {
-            if (currentTranscript.trim() && listeningState === ListeningState.LISTENING) {
-                recognitionRef.current?.stop();
-                handleQuery(currentTranscript.trim());
-            }
-        }, 1500); 
+      silenceTimerRef.current = setTimeout(() => {
+        if (currentTranscript.trim() && listeningState === ListeningState.LISTENING) {
+          recognitionRef.current?.stop();
+          handleQuery(currentTranscript.trim());
+        }
+      }, 1500);
     }
   };
 
   useEffect(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      toast({
-        variant: 'destructive',
-        title: 'Browser Not Supported',
-        description: 'Your browser does not support the Web Speech API.',
-      });
       return;
     }
 
     if (!recognitionRef.current) {
-        recognitionRef.current = new SpeechRecognition();
-        const recognition = recognitionRef.current;
-        recognition.continuous = true; 
-        recognition.interimResults = true;
+      recognitionRef.current = new SpeechRecognition();
+      const recognition = recognitionRef.current;
+      recognition.continuous = true;
+      recognition.interimResults = true;
 
-        recognition.onresult = processSpeech;
+      recognition.onresult = processSpeech;
 
-        recognition.onerror = (event: any) => {
-          if (event.error !== 'no-speech' && event.error !== 'aborted') {
-            console.error('Speech recognition error:', event.error);
-            toast({
-              variant: "destructive",
-              title: "Voice Error",
-              description: `An error occurred: ${event.error}. Please try again.`
-            });
+      recognition.onerror = (event: any) => {
+        if (event.error !== 'no-speech' && event.error !== 'aborted') {
+          console.error('Speech recognition error:', event.error);
+          toast({
+            variant: "destructive",
+            title: "Voice Error",
+            description: `An error occurred: ${event.error}. Please try again.`
+          });
+          setListeningState(ListeningState.IDLE);
+          recognitionRef.current?.stop();
+        }
+      };
+
+      recognition.onend = () => {
+        if (listeningState === ListeningState.LISTENING) {
+          try {
+            recognitionRef.current?.start();
+          } catch (e) {
+            console.error("Could not restart recognition service.", e);
             setListeningState(ListeningState.IDLE);
-            recognitionRef.current?.stop();
           }
-        };
-        
-        recognition.onend = () => {
-            if (listeningState === ListeningState.LISTENING) {
-               try {
-                   recognitionRef.current?.start();
-               } catch(e) {
-                   console.error("Could not restart recognition service.", e);
-                   setListeningState(ListeningState.IDLE);
-               }
-            }
-        };
+        }
+      };
     }
 
 
     if (audioRef.current) {
-        audioRef.current.onended = () => {
-            if (!isFinalizing && listeningState === ListeningState.RESPONDING) {
-                setListeningState(ListeningState.LISTENING);
-            }
-        };
+      audioRef.current.onended = () => {
+        if (!isFinalizing && listeningState === ListeningState.RESPONDING) {
+          setListeningState(ListeningState.IDLE);
+        }
+      };
     }
 
     return () => {
@@ -220,35 +224,35 @@ export default function ConversationalAgent() {
       if (audioRef.current) audioRef.current.pause();
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
     };
-  }, [isFinalizing, listeningState, toast]); 
+  }, [isFinalizing, listeningState, toast]);
 
 
   useEffect(() => {
     if (listeningState === ListeningState.LISTENING) {
-        try {
-            setCurrentTranscript('');
-            recognitionRef.current?.start();
-        } catch(e) {
-            console.error("Could not start recognition", e);
-            if(e instanceof DOMException && e.name === 'NotAllowedError') {
-                 toast({
-                    variant: 'destructive',
-                    title: 'Microphone Access Denied',
-                    description: 'Please allow microphone access in your browser settings.',
-                });
-            }
-            setListeningState(ListeningState.IDLE);
+      try {
+        setCurrentTranscript('');
+        recognitionRef.current?.start();
+      } catch (e) {
+        console.error("Could not start recognition", e);
+        if (e instanceof DOMException && e.name === 'NotAllowedError') {
+          toast({
+            variant: 'destructive',
+            title: 'Microphone Access Denied',
+            description: 'Please allow microphone access in your browser settings.',
+          });
         }
+        setListeningState(ListeningState.IDLE);
+      }
     } else {
-        recognitionRef.current?.stop();
+      recognitionRef.current?.stop();
     }
   }, [listeningState, toast]);
 
   const resetConversation = () => {
     setListeningState(ListeningState.IDLE);
     if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.src = "";
+      audioRef.current.pause();
+      audioRef.current.src = "";
     };
     conversationHistoryRef.current = [];
     setConversation([]);
@@ -257,94 +261,67 @@ export default function ConversationalAgent() {
     setCurrentTranscript('');
   }
 
-  const toggleConversation = () => {
-    if (listeningState === ListeningState.IDLE && !isFinalizing) {
-      resetConversation();
-      setListeningState(ListeningState.LISTENING);
-      toast({ title: 'Conversation started.', description: "I'm listening." });
+  const toggleListening = () => {
+    if (listeningState === ListeningState.LISTENING) {
+        setListeningState(ListeningState.IDLE);
     } else {
-      resetConversation();
-      toast({ title: 'Conversation ended.' });
+        setListeningState(ListeningState.LISTENING);
+    }
+  }
+
+  const handleTextInputSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (textInput.trim()) {
+      handleQuery(textInput.trim());
     }
   };
 
-  const getStatus = () => {
-      if (isFinalizing) {
-          return "Please review and confirm your meal below."
-      }
-      switch(listeningState) {
-          case ListeningState.IDLE:
-              return "Click the mic to start a conversation.";
-          case ListeningState.LISTENING:
-              return `Listening... Speak when you're ready.`;
-          case ListeningState.PROCESSING:
-              return "Thinking...";
-          case ListeningState.RESPONDING:
-              return "Responding...";
-          default:
-              return "Click the mic to begin."
-      }
-  }
-
   return (
-    <Card>
+    <Card className="flex flex-col h-[70vh]">
       <CardHeader>
         <CardTitle>Conversational Logging</CardTitle>
         <CardDescription>
-          Have a natural, hands-free conversation to log your meals. The conversation will continue until the meal is logged.
+          Have a natural, hands-free conversation to log your meals.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4 text-center">
-        {!isFinalizing && (
-          <>
-            <div className="flex justify-center">
-                <button
-                    className={`h-24 w-24 rounded-full flex items-center justify-center transition-all duration-300 ease-in-out
-                        ${listeningState === ListeningState.LISTENING ? 'bg-green-500 text-white shadow-lg scale-110' 
-                        : listeningState !== ListeningState.IDLE ? 'bg-blue-500 text-white'
-                        : 'bg-muted text-muted-foreground'}`}
-                    onClick={toggleConversation}
-                    disabled={listeningState === ListeningState.PROCESSING || listeningState === ListeningState.RESPONDING}
-                >
-                    <Mic className="h-10 w-10" />
-                </button>
+      <CardContent className="flex-grow space-y-4 text-left max-h-full overflow-y-auto pr-4">
+        {conversation.length === 0 && !isFinalizing && (
+            <div className="flex flex-col items-center justify-center h-full text-center">
+                <Bot className="w-16 h-16 text-muted-foreground/50" />
+                <p className="mt-4 text-muted-foreground">Start the conversation by typing or using the mic.</p>
             </div>
-            <p className="min-h-[2rem] text-muted-foreground">{getStatus()}</p>
-          </>
         )}
-        
-        <div className="space-y-4 pt-4 text-left max-h-96 overflow-y-auto pr-4">
-            {conversation.map((entry, index) => (
-                <div key={index} className={`flex items-start gap-3 ${entry.actor === 'user' ? 'justify-end' : ''}`}>
-                    {entry.actor === 'ai' && (
-                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-primary-foreground shrink-0">
-                            <Bot className="h-5 w-5" />
-                        </div>
-                    )}
-                    <div className={`rounded-lg p-3 max-w-[80%] shadow-sm ${entry.actor === 'ai' ? 'bg-muted' : 'bg-accent text-accent-foreground'}`}>
-                        <p>{entry.text}</p>
-                    </div>
-                     {entry.actor === 'user' && (
-                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary text-secondary-foreground shrink-0">
-                            <User className="h-5 w-5" />
-                        </div>
-                    )}
-                </div>
-            ))}
-             {currentTranscript && listeningState === ListeningState.LISTENING && (
-                <div className="flex items-start gap-3 justify-end">
-                    <div className="rounded-lg p-3 max-w-[80%] shadow-sm bg-accent/50 text-accent-foreground">
-                        <p>{currentTranscript}</p>
-                    </div>
-                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary text-secondary-foreground shrink-0">
-                        <User className="h-5 w-5" />
-                    </div>
-                </div>
-             )}
-        </div>
+
+        {conversation.map((entry, index) => (
+          <div key={index} className={`flex items-start gap-3 ${entry.actor === 'user' ? 'justify-end' : ''}`}>
+            {entry.actor === 'ai' && (
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-primary-foreground shrink-0">
+                <Bot className="h-5 w-5" />
+              </div>
+            )}
+            <div className={`rounded-lg p-3 max-w-[80%] shadow-sm ${entry.actor === 'ai' ? 'bg-muted' : 'bg-accent text-accent-foreground'}`}>
+              <p>{entry.text}</p>
+            </div>
+            {entry.actor === 'user' && (
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary text-secondary-foreground shrink-0">
+                <User className="h-5 w-5" />
+              </div>
+            )}
+          </div>
+        ))}
+        {currentTranscript && listeningState === ListeningState.LISTENING && (
+          <div className="flex items-start gap-3 justify-end">
+            <div className="rounded-lg p-3 max-w-[80%] shadow-sm bg-accent/50 text-accent-foreground">
+              <p>{currentTranscript}</p>
+            </div>
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary text-secondary-foreground shrink-0">
+              <User className="h-5 w-5" />
+            </div>
+          </div>
+        )}
 
         {isFinalizing && lastMealData && (
-          <Card className="text-left mt-4">
+          <Card className="text-left mt-4 border-accent">
             <CardHeader>
               <CardTitle>Confirm Your Meal</CardTitle>
               <CardDescription>
@@ -388,6 +365,35 @@ export default function ConversationalAgent() {
 
         <audio ref={audioRef} className="hidden" />
       </CardContent>
+      <CardFooter>
+        <form onSubmit={handleTextInputSubmit} className="flex w-full items-center space-x-2">
+          <Input
+            type="text"
+            placeholder={
+              listeningState === ListeningState.LISTENING 
+                ? "Listening..." 
+                : isFinalizing 
+                ? "Confirm, cancel, or make changes"
+                : "Type your message..."
+            }
+            value={textInput}
+            onChange={(e) => setTextInput(e.target.value)}
+            disabled={listeningState === ListeningState.PROCESSING || listeningState === ListeningState.RESPONDING}
+          />
+          <Button type="submit" size="icon" disabled={listeningState !== ListeningState.IDLE && listeningState !== ListeningState.LISTENING}>
+            <Send className="h-4 w-4" />
+          </Button>
+          <Button
+            type="button"
+            size="icon"
+            variant={listeningState === ListeningState.LISTENING ? 'destructive' : 'outline'}
+            onClick={toggleListening}
+            disabled={listeningState === ListeningState.PROCESSING || listeningState === ListeningState.RESPONDING}
+          >
+            <Mic className="h-4 w-4" />
+          </Button>
+        </form>
+      </CardFooter>
     </Card>
   );
 }
