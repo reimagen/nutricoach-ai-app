@@ -7,12 +7,9 @@ import { textToSpeech } from '@/ai/flows/text-to-speech';
 import { conversationalMealLogging } from '@/ai/flows/conversational-meal-logging';
 import { Bot, Mic, User } from 'lucide-react';
 
-const WAKE_WORD = 'hey nutricoach';
-
 enum ListeningState {
-  IDLE, // Not listening
-  WAITING_FOR_WAKE_WORD, // Listening for wake word
-  LISTENING_FOR_QUERY, // Wake word detected, listening for user's command
+  IDLE, // Not listening, waiting for user to start
+  LISTENING_FOR_QUERY, // Listening for user's command
   PROCESSING, // AI is thinking
   RESPONDING, // AI is speaking
 }
@@ -43,7 +40,7 @@ export default function ConversationalAgent() {
         title: 'Speech Generation Failed',
         description: 'Could not generate audio for the response.',
       });
-      setListeningState(ListeningState.WAITING_FOR_WAKE_WORD);
+      setListeningState(ListeningState.LISTENING_FOR_QUERY); // Go back to listening
     }
   };
 
@@ -66,22 +63,15 @@ export default function ConversationalAgent() {
       const transcript = Array.from(event.results)
         .map((result: any) => result[0])
         .map((result) => result.transcript)
-        .join('')
-        .toLowerCase();
+        .join('');
       
-      if (listeningState === ListeningState.WAITING_FOR_WAKE_WORD && transcript.includes(WAKE_WORD)) {
-        console.log('Wake word detected!');
-        setListeningState(ListeningState.LISTENING_FOR_QUERY);
-        speak("I'm listening.");
-      } else if (listeningState === ListeningState.LISTENING_FOR_QUERY) {
+      if (listeningState === ListeningState.LISTENING_FOR_QUERY && transcript) {
         // Reset silence timer on new speech
         if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
 
         silenceTimerRef.current = setTimeout(() => {
-          const lastIndex = transcript.lastIndexOf(WAKE_WORD);
-          const query = lastIndex !== -1 ? transcript.substring(lastIndex + WAKE_WORD.length).trim() : transcript.trim();
-          if (query) {
-            handleQuery(query);
+          if (transcript.trim()) {
+            handleQuery(transcript.trim());
           }
         }, 1500); // 1.5 seconds of silence to trigger query
       }
@@ -90,6 +80,14 @@ export default function ConversationalAgent() {
     recognitionRef.current.onerror = (event: any) => {
       if (event.error !== 'no-speech') {
         console.error('Speech recognition error:', event.error);
+        if (listeningState !== ListeningState.IDLE) {
+          setListeningState(ListeningState.IDLE);
+          toast({
+            variant: "destructive",
+            title: "Voice Error",
+            description: "There was an issue with voice recognition. Please try again."
+          })
+        }
       }
     };
     
@@ -106,9 +104,8 @@ export default function ConversationalAgent() {
 
     if (audioRef.current) {
         audioRef.current.onended = () => {
-            // After AI finishes speaking, go back to listening for wake word
-            // unless the conversation is over, then it should start listening again
-            setListeningState(ListeningState.WAITING_FOR_WAKE_WORD);
+            // After AI finishes speaking, go back to listening for user's next turn
+            setListeningState(ListeningState.LISTENING_FOR_QUERY);
         };
     }
 
@@ -124,7 +121,7 @@ export default function ConversationalAgent() {
 
   const handleQuery = async (query: string) => {
     if (!query) {
-        setListeningState(ListeningState.WAITING_FOR_WAKE_WORD);
+        setListeningState(ListeningState.LISTENING_FOR_QUERY);
         return;
     };
     setListeningState(ListeningState.PROCESSING);
@@ -142,11 +139,9 @@ export default function ConversationalAgent() {
       if (result.isEndOfConversation) {
         // Conversation is done, reset history for the next interaction
         conversationHistoryRef.current = [];
-        // After speaking, the onended event will set state to WAITING_FOR_WAKE_WORD
+        // After speaking, the onended event will set state back to listening
       } 
-      // If not end of conversation, the onended event will also set state to WAITING_FOR_WAKE_WORD
-      // for the next turn.
-
+      
     } catch (error) {
       console.error('Error in conversational flow:', error);
       await speak("Sorry, I ran into a problem. Please try again.");
@@ -155,11 +150,11 @@ export default function ConversationalAgent() {
 
   const toggleMainListening = () => {
     if (listeningState === ListeningState.IDLE) {
-      setListeningState(ListeningState.WAITING_FOR_WAKE_WORD);
+      setListeningState(ListeningState.LISTENING_FOR_QUERY);
       recognitionRef.current.start();
       setConversation([]);
       conversationHistoryRef.current = [];
-      toast({ title: 'Conversational agent activated.', description: `Say "${WAKE_WORD}" to start.` });
+      toast({ title: 'Conversational agent activated.', description: `I'm listening.` });
     } else {
       setListeningState(ListeningState.IDLE);
       recognitionRef.current.stop();
@@ -171,10 +166,8 @@ export default function ConversationalAgent() {
       switch(listeningState) {
           case ListeningState.IDLE:
               return "Click the mic to start the conversation.";
-          case ListeningState.WAITING_FOR_WAKE_WORD:
-              return `Listening for "${WAKE_WORD}"...`;
           case ListeningState.LISTENING_FOR_QUERY:
-              return "Listening for your meal details...";
+              return `Listening...`;
           case ListeningState.PROCESSING:
               return "Thinking...";
           case ListeningState.RESPONDING:
