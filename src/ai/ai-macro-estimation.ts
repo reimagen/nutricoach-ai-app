@@ -36,22 +36,17 @@ const prompt = ai.definePrompt({
   name: 'estimateMacrosPrompt',
   input: {schema: EstimateMacrosInputSchema},
   output: {schema: EstimateMacrosOutputSchema},
-  prompt: `You are a nutrition expert.  Given the following description of a meal, estimate the macros (calories, protein, carbs, and fat).
+  prompt: `You are a nutrition expert. Given the following description of a meal, estimate the macros (calories, protein, carbs, and fat).
 
 Description: {{{mealDescription}}}
 
-Provide your best estimate for the following:
-- Estimated total calories (kcal):
-- Estimated protein (grams):
-- Estimated carbohydrates (grams):
-- Estimated fat (grams):
+Provide your best estimate for the following, ensuring your output is only the JSON object with the requested fields:
+- estimatedKcal (number)
+- estimatedProteinGrams (number)
+- estimatedCarbGrams (number)
+- estimatedFatGrams (number)
 
-Ensure your estimates are realistic and based on typical nutritional values for common foods.  Present the estimated values clearly.  Do not include explanations or additional text.
-
-{{#if estimatedKcal}}Estimated Calories: {{estimatedKcal}} kcal{{/if}}
-{{#if estimatedProteinGrams}}Estimated Protein: {{estimatedProteinGrams}} g{{/if}}
-{{#if estimatedCarbGrams}}Estimated Carbs: {{estimatedCarbGrams}} g{{/if}}
-{{#if estimatedFatGrams}}Estimated Fat: {{estimatedFatGrams}} g{{/if}}`,
+Ensure your estimates are realistic and based on typical nutritional values for common foods. Do not include explanations or additional text in your response.`,
 });
 
 const estimateMacrosFlow = ai.defineFlow(
