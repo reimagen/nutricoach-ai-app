@@ -54,8 +54,14 @@ export default function ConversationalAgent() {
   };
 
   const handleSaveMeal = async () => {
-      if (!lastMealData || !user) return;
-
+      if (!lastMealData || !user) {
+        toast({
+          variant: 'destructive',
+          title: 'Save Failed',
+          description: 'User or meal data is missing.',
+        });
+        return;
+      }
       try {
         await addDoc(collection(db, 'users', user.uid, 'meals'), {
           uid: user.uid,
@@ -101,27 +107,22 @@ export default function ConversationalAgent() {
         userQuery: query,
         conversationHistory: conversationHistoryRef.current,
       });
-      
-      if (result.mealToLog) {
-        setLastMealData(result.mealToLog);
-      } else if (lastMealData) {
-        // This case handles the follow-up question. The API might not return the full meal data again.
-        // We assume the user's query is the meal category.
-        const updatedMealData = {
-          ...lastMealData,
-          mealCategory: query.toLowerCase() as any, // Simple assumption
-        };
-        setLastMealData(updatedMealData);
-      }
-      
-      await speak(result.response);
 
-      if (result.isEndOfConversation) {
-        if (result.mealToLog) {
-            setIsFinalizing(true);
-            setListeningState(ListeningState.IDLE); // Stop listening to show confirmation
-        } else {
-            setListeningState(ListeningState.IDLE);
+      if (result.mealToLog && result.mealToLog.mealCategory !== 'unknown') {
+        // This is the final step, meal is ready to be logged.
+        setLastMealData(result.mealToLog);
+        setIsFinalizing(true);
+        setListeningState(ListeningState.IDLE);
+        await speak(result.response);
+      } else if (result.mealToLog) {
+        // This is the first step, meal details gathered, but category is missing.
+        setLastMealData(result.mealToLog);
+        await speak(result.response);
+      } else {
+        // This is a general conversation turn, no meal data yet.
+        await speak(result.response);
+        if (result.isEndOfConversation) {
+          setListeningState(ListeningState.IDLE);
         }
       }
 
@@ -146,16 +147,16 @@ export default function ConversationalAgent() {
       }
     }
     
-    setCurrentTranscript(interimTranscript);
+    setCurrentTranscript(prev => prev + interimTranscript);
 
     if (finalTranscriptForThisSegment.trim()) {
         recognitionRef.current?.stop();
         handleQuery(finalTranscriptForThisSegment.trim());
     } else {
         silenceTimerRef.current = setTimeout(() => {
-            if (interimTranscript.trim() && listeningState === ListeningState.LISTENING) {
+            if (currentTranscript.trim() && listeningState === ListeningState.LISTENING) {
                 recognitionRef.current?.stop();
-                handleQuery(interimTranscript.trim());
+                handleQuery(currentTranscript.trim());
             }
         }, 1500); 
     }
@@ -225,6 +226,7 @@ export default function ConversationalAgent() {
   useEffect(() => {
     if (listeningState === ListeningState.LISTENING) {
         try {
+            setCurrentTranscript('');
             recognitionRef.current?.start();
         } catch(e) {
             console.error("Could not start recognition", e);
@@ -329,7 +331,7 @@ export default function ConversationalAgent() {
                     )}
                 </div>
             ))}
-             {currentTranscript && (
+             {currentTranscript && listeningState === ListeningState.LISTENING && (
                 <div className="flex items-start gap-3 justify-end">
                     <div className="rounded-lg p-3 max-w-[80%] shadow-sm bg-accent/50 text-accent-foreground">
                         <p>{currentTranscript}</p>
@@ -345,7 +347,9 @@ export default function ConversationalAgent() {
           <Card className="text-left mt-4">
             <CardHeader>
               <CardTitle>Confirm Your Meal</CardTitle>
-              <CardDescription>{lastMealData.mealDescription}</CardDescription>
+              <CardDescription>
+                I've logged this as a {lastMealData.mealCategory}. Here is the breakdown:
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
