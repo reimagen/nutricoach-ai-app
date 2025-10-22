@@ -17,9 +17,9 @@ export default function LogMealPage() {
         Log meals naturally by speaking, snapping a photo, or having a conversation.
       </p>
       <div className="mt-6">
-        <Tabs defaultValue="conversation" className="w-full">
+        <Tabs defaultValue="voice" className="w-full">
           <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="conversation">
+            <TabsTrigger value="conversation" disabled>
               <MessageCircle className="mr-2 h-4 w-4" />
               Conversation
             </TabsTrigger>
