@@ -6,6 +6,10 @@ import { useToast } from '@/hooks/use-toast';
 import { conversationalMealLogging } from '@/ai/flows/conversational-meal-logging';
 import { textToSpeech } from '@/ai/flows/text-to-speech';
 import { Bot, Mic, User } from 'lucide-react';
+import { doc, setDoc, serverTimestamp, collection } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
+import { useAuth } from '@/hooks/useAuth';
+
 
 enum ListeningState {
   IDLE, // Not listening, waiting for user to start
@@ -15,6 +19,7 @@ enum ListeningState {
 }
 
 export default function ConversationalAgent() {
+  const { user } = useAuth();
   const [listeningState, setListeningState] = useState(ListeningState.IDLE);
   const [conversation, setConversation] = useState<{ actor: 'user' | 'ai'; text: string }[]>([]);
   const { toast } = useToast();
@@ -65,6 +70,22 @@ export default function ConversationalAgent() {
       await speak(result.response);
 
       if (result.isEndOfConversation) {
+        if (result.mealToLog && user) {
+           // Create a new document in the 'meals' collection
+           const newMealRef = doc(collection(db, 'users', user.uid, 'meals'));
+           await setDoc(newMealRef, {
+             uid: user.uid,
+             ...result.mealToLog,
+             description: result.mealToLog.mealDescription,
+             macros: result.mealToLog.totalMacros,
+             source: 'conversation',
+             createdAt: serverTimestamp(),
+           });
+            toast({
+              title: 'Meal Saved!',
+              description: `Your ${result.mealToLog.mealCategory} has been added to your log.`,
+            });
+        }
         conversationHistoryRef.current = [];
         // The onended audio event will handle transitioning back to listening
       }
