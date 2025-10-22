@@ -66,8 +66,8 @@ export default function ConversationalAgent() {
     }
     setIsFinalizing(false);
     try {
-      await addDoc(collection(db, 'users', user.uid, 'meals'), {
-        uid: user.uid,
+      await addDoc(collection(db, 'meals'), {
+        userId: user.uid,
         description: lastMealData.mealDescription,
         mealCategory: lastMealData.mealCategory,
         items: lastMealData.items,
@@ -100,6 +100,11 @@ export default function ConversationalAgent() {
       }
       return;
     }
+    
+    // Prevent duplicate processing
+    if (listeningState === ListeningState.PROCESSING || listeningState === ListeningState.RESPONDING) {
+      return;
+    }
 
     setListeningState(ListeningState.PROCESSING);
     setConversation(prev => [...prev, { actor: 'user', text: query }]);
@@ -121,8 +126,9 @@ export default function ConversationalAgent() {
         // This is the final step, meal is ready to be logged.
         setLastMealData(result.mealToLog);
         setIsFinalizing(true);
-        setListeningState(ListeningState.IDLE);
         await speak(result.response);
+        // After speaking, go to IDLE, because we are waiting for button click
+        setListeningState(ListeningState.IDLE);
       } else if (result.mealToLog) {
         // This is the first step, meal details gathered, but category is missing.
         setLastMealData(result.mealToLog);
@@ -156,16 +162,18 @@ export default function ConversationalAgent() {
       }
     }
 
-    setCurrentTranscript(prev => prev + interimTranscript);
+    setCurrentTranscript(currentTranscript + interimTranscript);
+
+    const finalQuery = (currentTranscript + finalTranscriptForThisSegment).trim();
 
     if (finalTranscriptForThisSegment.trim()) {
       recognitionRef.current?.stop();
-      handleQuery(finalTranscriptForThisSegment.trim());
+      handleQuery(finalQuery);
     } else {
       silenceTimerRef.current = setTimeout(() => {
-        if (currentTranscript.trim() && listeningState === ListeningState.LISTENING) {
+        if (finalQuery && listeningState === ListeningState.LISTENING) {
           recognitionRef.current?.stop();
-          handleQuery(currentTranscript.trim());
+          handleQuery(finalQuery);
         }
       }, 1500);
     }
@@ -197,16 +205,12 @@ export default function ConversationalAgent() {
           recognitionRef.current?.stop();
         }
       };
-
+      
       recognition.onend = () => {
-        if (listeningState === ListeningState.LISTENING) {
-          try {
-            recognitionRef.current?.start();
-          } catch (e) {
-            console.error("Could not restart recognition service.", e);
-            setListeningState(ListeningState.IDLE);
+          if (listeningState === ListeningState.LISTENING) {
+              // Don't automatically restart if we are processing
+              // The flow will restart it if needed
           }
-        }
       };
     }
 
