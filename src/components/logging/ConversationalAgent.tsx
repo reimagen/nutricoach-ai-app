@@ -97,17 +97,20 @@ export default function ConversationalAgent() {
         conversationHistory: conversationHistoryRef.current,
       });
       
-      setLastMealData(result.mealToLog ?? lastMealData);
+      if (result.mealToLog) {
+        setLastMealData(result.mealToLog);
+      }
       
       await speak(result.response);
 
       if (result.isEndOfConversation) {
         if (result.mealToLog) {
-            setLastMealData(result.mealToLog);
             setIsFinalizing(true);
             setListeningState(ListeningState.IDLE); // Stop listening to show confirmation
         } else {
-            resetConversation();
+            // General question answered, don't fully reset, just go back to listening.
+            // A full reset can be done manually.
+            setListeningState(ListeningState.IDLE);
         }
       }
 
@@ -121,25 +124,24 @@ export default function ConversationalAgent() {
     if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
     
     let interimTranscript = '';
-    finalTranscriptRef.current = '';
+    let finalTranscript = '';
 
     for (let i = 0; i < event.results.length; ++i) {
       if (event.results[i].isFinal) {
-        finalTranscriptRef.current += event.results[i][0].transcript;
+        finalTranscript += event.results[i][0].transcript;
       } else {
         interimTranscript += event.results[i][0].transcript;
       }
     }
     
-    if (finalTranscriptRef.current) {
-        handleQuery(finalTranscriptRef.current.trim());
-        finalTranscriptRef.current = '';
-        recognitionRef.current?.stop();
+    if (finalTranscript.trim()) {
+        handleQuery(finalTranscript.trim());
+        if(recognitionRef.current) recognitionRef.current.stop();
     } else {
         silenceTimerRef.current = setTimeout(() => {
             if (interimTranscript.trim()) {
                 handleQuery(interimTranscript.trim());
-                recognitionRef.current?.stop();
+                 if(recognitionRef.current) recognitionRef.current.stop();
             }
         }, 1200); 
     }
@@ -156,36 +158,39 @@ export default function ConversationalAgent() {
       return;
     }
 
-    recognitionRef.current = new SpeechRecognition();
-    const recognition = recognitionRef.current;
-    recognition.continuous = true; 
-    recognition.interimResults = true;
+    if (!recognitionRef.current) {
+        recognitionRef.current = new SpeechRecognition();
+        const recognition = recognitionRef.current;
+        recognition.continuous = true; 
+        recognition.interimResults = true;
 
-    recognition.onresult = processSpeech;
+        recognition.onresult = processSpeech;
 
-    recognition.onerror = (event: any) => {
-      if (event.error !== 'no-speech' && event.error !== 'aborted') {
-        console.error('Speech recognition error:', event.error);
-        toast({
-          variant: "destructive",
-          title: "Voice Error",
-          description: `An error occurred: ${event.error}. Please try again.`
-        });
-        setListeningState(ListeningState.IDLE);
-        if(recognitionRef.current) recognitionRef.current.stop();
-      }
-    };
-    
-    recognition.onend = () => {
-        if (listeningState === ListeningState.LISTENING) {
-           try {
-               if(recognitionRef.current) recognitionRef.current.start();
-           } catch(e) {
-               console.error("Could not restart recognition service.", e);
-               setListeningState(ListeningState.IDLE);
-           }
-        }
-    };
+        recognition.onerror = (event: any) => {
+          if (event.error !== 'no-speech' && event.error !== 'aborted') {
+            console.error('Speech recognition error:', event.error);
+            toast({
+              variant: "destructive",
+              title: "Voice Error",
+              description: `An error occurred: ${event.error}. Please try again.`
+            });
+            setListeningState(ListeningState.IDLE);
+            if(recognitionRef.current) recognitionRef.current.stop();
+          }
+        };
+        
+        recognition.onend = () => {
+            if (listeningState === ListeningState.LISTENING) {
+               try {
+                   if(recognitionRef.current) recognitionRef.current.start();
+               } catch(e) {
+                   console.error("Could not restart recognition service.", e);
+                   setListeningState(ListeningState.IDLE);
+               }
+            }
+        };
+    }
+
 
     if (audioRef.current) {
         audioRef.current.onended = () => {
@@ -196,7 +201,7 @@ export default function ConversationalAgent() {
     }
 
     return () => {
-      if (recognitionRef.current) recognitionRef.current.stop();
+      // Don't stop recognition here as it's managed by state
       if (audioRef.current) audioRef.current.pause();
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
     };
@@ -210,6 +215,7 @@ export default function ConversationalAgent() {
         } catch(e) {
             // This might be called if the component is in a weird state
             console.error("Could not start recognition", e);
+            setListeningState(ListeningState.IDLE);
         }
     } else {
         recognitionRef.current?.stop();
@@ -218,7 +224,10 @@ export default function ConversationalAgent() {
 
   const resetConversation = () => {
     setListeningState(ListeningState.IDLE);
-    if (audioRef.current) audioRef.current.pause();
+    if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = "";
+    };
     conversationHistoryRef.current = [];
     setConversation([]);
     setLastMealData(null);
@@ -226,11 +235,8 @@ export default function ConversationalAgent() {
   }
 
   const toggleConversation = () => {
-    if (listeningState === ListeningState.IDLE) {
-      setIsFinalizing(false);
-      setLastMealData(null);
-      setConversation([]);
-      conversationHistoryRef.current = [];
+    if (listeningState === ListeningState.IDLE && !isFinalizing) {
+      resetConversation(); // Clear old conversations before starting a new one
       setListeningState(ListeningState.LISTENING);
       toast({ title: 'Conversation started.', description: "I'm listening." });
     } else {
@@ -262,7 +268,7 @@ export default function ConversationalAgent() {
       <CardHeader>
         <CardTitle>Conversational Logging</CardTitle>
         <CardDescription>
-          Have a natural, hands-free conversation to log your meals. No wake word needed after starting.
+          Have a natural, hands-free conversation to log your meals. The conversation will continue until the meal is logged.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4 text-center">
@@ -285,7 +291,7 @@ export default function ConversationalAgent() {
         
         <div className="space-y-4 pt-4 text-left max-h-96 overflow-y-auto pr-4">
             {conversation.map((entry, index) => (
-                <div key={index} className={`flex items-start gap-3 ${entry.actor === 'user' ? 'flex-row-reverse' : ''}`}>
+                <div key={index} className={`flex items-start gap-3 ${entry.actor === 'user' ? 'justify-end' : ''}`}>
                     {entry.actor === 'ai' && (
                         <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-primary-foreground shrink-0">
                             <Bot className="h-5 w-5" />
@@ -350,4 +356,4 @@ export default function ConversationalAgent() {
   );
 }
 
-  
+    
