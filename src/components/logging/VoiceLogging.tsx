@@ -14,6 +14,8 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { voiceMealLogging, VoiceMealLoggingOutput } from '@/ai/flows/voice-meal-logging';
 import { textToSpeech } from '@/ai/flows/text-to-speech';
+import { useAuth } from '@/hooks/useAuth'; // Import useAuth hook
+import { getFirestore, collection, addDoc } from "firebase/firestore"; // Import firestore functions
 
 export default function VoiceLogging() {
   const [isRecording, setIsRecording] = useState(false);
@@ -25,6 +27,7 @@ export default function VoiceLogging() {
   const { toast } = useToast();
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
+  const { user } = useAuth(); // Get the current user
 
 
   const recognitionRef = useRef<any>(null);
@@ -174,16 +177,31 @@ export default function VoiceLogging() {
   };
 
   const handleSaveMeal = async () => {
-    if (!analysisResult) return;
-    // await saveMealEntry({ ... }); // Server action call
-    toast({
-      title: 'Meal Saved!',
-      description: `Your ${analysisResult.mealCategory} has been added to your log.`,
-    });
-    setAnalysisResult(null);
-    setTranscript('');
-    setOriginalTranscript('');
-    setIsAwaitingClarification(false);
+    if (!analysisResult || !user) return;
+    
+    const db = getFirestore();
+    try {
+      await addDoc(collection(db, "meals"), {
+        userId: user.uid,
+        createdAt: new Date(),
+        ...analysisResult,
+      });
+      toast({
+        title: 'Meal Saved!',
+        description: `Your ${analysisResult.mealCategory} has been added to your log.`,
+      });
+      setAnalysisResult(null);
+      setTranscript('');
+      setOriginalTranscript('');
+      setIsAwaitingClarification(false);
+    } catch (error) {
+      console.error("Error saving meal: ", error);
+      toast({
+        variant: 'destructive',
+        title: 'Save Failed',
+        description: 'Could not save your meal. Please try again.',
+      });
+    }
   };
 
   const handleCancel = () => {
