@@ -6,7 +6,7 @@ import { useToast } from '@/hooks/use-toast';
 import { conversationalMealLogging } from '@/ai/flows/conversational-meal-logging';
 import { textToSpeech } from '@/ai/flows/text-to-speech';
 import { Bot, Mic, User } from 'lucide-react';
-import { doc, setDoc, serverTimestamp, collection } from 'firebase/firestore';
+import { doc, setDoc, serverTimestamp, collection, addDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -73,7 +73,7 @@ export default function ConversationalAgent() {
         if (result.mealToLog && user) {
            // Create a new document in the 'meals' collection
            const newMealRef = doc(collection(db, 'users', user.uid, 'meals'));
-           await setDoc(newMealRef, {
+           await addDoc(collection(db, 'users', user.uid, 'meals'), {
              uid: user.uid,
              ...result.mealToLog,
              description: result.mealToLog.mealDescription,
@@ -114,12 +114,15 @@ export default function ConversationalAgent() {
 
     if (finalTranscriptRef.current) {
         handleQuery(finalTranscriptRef.current.trim());
+        finalTranscriptRef.current = '';
+        recognitionRef.current?.stop();
     } else {
         // If there's no final transcript, set a timer to process the interim one after a pause.
         // This handles cases where the user pauses mid-sentence.
         silenceTimerRef.current = setTimeout(() => {
             if (interimTranscript.trim()) {
                 handleQuery(interimTranscript.trim());
+                recognitionRef.current?.stop();
             } else if (listeningState === ListeningState.LISTENING) {
                 // If there's truly no speech, just keep listening
             }
@@ -160,7 +163,7 @@ export default function ConversationalAgent() {
     
     recognition.onend = () => {
         // If the service stops for any reason and we weren't trying to stop it, restart it.
-        if (listeningState !== ListeningState.IDLE && listeningState !== ListeningState.PROCESSING) {
+        if (listeningState === ListeningState.LISTENING) {
            try {
                recognition.start();
            } catch(e) {
@@ -188,17 +191,31 @@ export default function ConversationalAgent() {
   }, []); // Only run this once
 
 
+  useEffect(() => {
+    if(listeningState === ListeningState.LISTENING) {
+        try {
+            recognitionRef.current?.start();
+        } catch(e) {
+            console.error("Could not start recognition", e);
+        }
+    }
+  }, [listeningState]);
+
+
   const toggleConversation = () => {
     if (listeningState === ListeningState.IDLE) {
       setListeningState(ListeningState.LISTENING);
-      recognitionRef.current.start();
-      setConversation([]);
-      conversationHistoryRef.current = [];
+       // Only clear conversation if it's a truly new one
+      if (conversationHistoryRef.current.length === 0) {
+        setConversation([]);
+      }
       toast({ title: 'Conversation started.', description: "I'm listening." });
     } else {
       setListeningState(ListeningState.IDLE);
       recognitionRef.current.stop();
       if (audioRef.current) audioRef.current.pause();
+      // Clear history when conversation is explicitly stopped
+      conversationHistoryRef.current = [];
       toast({ title: 'Conversation ended.' });
     }
   };
