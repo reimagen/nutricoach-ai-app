@@ -3,10 +3,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { conversationalMealLogging } from '@/ai/flows/conversational-meal-logging';
+import { conversationalMealLogging, ConversationalMealLoggingOutput } from '@/ai/flows/conversational-meal-logging';
 import { textToSpeech } from '@/ai/flows/text-to-speech';
 import { Bot, Mic, User } from 'lucide-react';
-import { doc, setDoc, serverTimestamp, collection, addDoc } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -28,11 +28,11 @@ export default function ConversationalAgent() {
   const conversationHistoryRef = useRef<string[]>([]);
   const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const finalTranscriptRef = useRef<string>('');
+  const [lastMealData, setLastMealData] = useState<ConversationalMealLoggingOutput['mealToLog'] | null>(null);
 
   const speak = async (text: string) => {
     setListeningState(ListeningState.RESPONDING);
     try {
-      // Use the existing text-to-speech flow
       const { media } = await textToSpeech(text);
       if (audioRef.current) {
         audioRef.current.src = media;
@@ -47,9 +47,35 @@ export default function ConversationalAgent() {
         title: 'Speech Generation Failed',
         description: 'Could not generate audio for the response.',
       });
-      // Even if speech fails, go back to listening
       setListeningState(ListeningState.LISTENING);
     }
+  };
+
+  const handleSaveMeal = async (mealData: ConversationalMealLoggingOutput['mealToLog']) => {
+      if (!mealData || !user) return;
+
+      try {
+        await addDoc(collection(db, 'users', user.uid, 'meals'), {
+          uid: user.uid,
+          description: mealData.mealDescription,
+          mealCategory: mealData.mealCategory,
+          items: mealData.items,
+          macros: mealData.totalMacros,
+          source: 'conversation',
+          createdAt: serverTimestamp(),
+        });
+        toast({
+          title: 'Meal Saved!',
+          description: `Your ${mealData.mealCategory} has been added to your log.`,
+        });
+      } catch(error) {
+        console.error("Failed to save meal:", error);
+        toast({
+          variant: 'destructive',
+          title: 'Save Failed',
+          description: 'Could not save your meal to the database.',
+        });
+      }
   };
 
   const handleQuery = async (query: string) => {
@@ -66,28 +92,16 @@ export default function ConversationalAgent() {
         userQuery: query,
         conversationHistory: conversationHistoryRef.current,
       });
-
+      
+      setLastMealData(result.mealToLog ?? null);
+      
       await speak(result.response);
 
       if (result.isEndOfConversation) {
-        if (result.mealToLog && user) {
-           // Create a new document in the 'meals' collection
-           const newMealRef = doc(collection(db, 'users', user.uid, 'meals'));
-           await addDoc(collection(db, 'users', user.uid, 'meals'), {
-             uid: user.uid,
-             ...result.mealToLog,
-             description: result.mealToLog.mealDescription,
-             macros: result.mealToLog.totalMacros,
-             source: 'conversation',
-             createdAt: serverTimestamp(),
-           });
-            toast({
-              title: 'Meal Saved!',
-              description: `Your ${result.mealToLog.mealCategory} has been added to your log.`,
-            });
+        if (result.mealToLog) {
+            await handleSaveMeal(result.mealToLog);
         }
         conversationHistoryRef.current = [];
-        // The onended audio event will handle transitioning back to listening
       }
 
     } catch (error) {
@@ -110,23 +124,17 @@ export default function ConversationalAgent() {
       }
     }
     
-    // You could update the UI with the interim transcript here if desired
-
     if (finalTranscriptRef.current) {
         handleQuery(finalTranscriptRef.current.trim());
         finalTranscriptRef.current = '';
         recognitionRef.current?.stop();
     } else {
-        // If there's no final transcript, set a timer to process the interim one after a pause.
-        // This handles cases where the user pauses mid-sentence.
         silenceTimerRef.current = setTimeout(() => {
             if (interimTranscript.trim()) {
                 handleQuery(interimTranscript.trim());
                 recognitionRef.current?.stop();
-            } else if (listeningState === ListeningState.LISTENING) {
-                // If there's truly no speech, just keep listening
             }
-        }, 1200); // 1.2 seconds of silence triggers processing
+        }, 1200); 
     }
   };
 
@@ -143,7 +151,7 @@ export default function ConversationalAgent() {
 
     recognitionRef.current = new SpeechRecognition();
     const recognition = recognitionRef.current;
-    recognition.continuous = true; // Keep listening even after user pauses
+    recognition.continuous = true; 
     recognition.interimResults = true;
 
     recognition.onresult = processSpeech;
@@ -157,17 +165,15 @@ export default function ConversationalAgent() {
           description: `An error occurred: ${event.error}. Please try again.`
         });
         setListeningState(ListeningState.IDLE);
-        recognition.stop();
+        if(recognitionRef.current) recognitionRef.current.stop();
       }
     };
     
     recognition.onend = () => {
-        // If the service stops for any reason and we weren't trying to stop it, restart it.
         if (listeningState === ListeningState.LISTENING) {
            try {
-               recognition.start();
+               if(recognitionRef.current) recognitionRef.current.start();
            } catch(e) {
-               // This can happen if the user navigates away
                console.error("Could not restart recognition service.", e);
                setListeningState(ListeningState.IDLE);
            }
@@ -181,14 +187,12 @@ export default function ConversationalAgent() {
         };
     }
 
-    // Cleanup function
     return () => {
-      recognition?.stop();
+      if (recognitionRef.current) recognitionRef.current.stop();
       if (audioRef.current) audioRef.current.pause();
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Only run this once
+  }, [listeningState]); // Rerun setup if listeningState changes to attach correct onended handler
 
 
   useEffect(() => {
@@ -196,8 +200,11 @@ export default function ConversationalAgent() {
         try {
             recognitionRef.current?.start();
         } catch(e) {
+            // This might be called if the component is in a weird state
             console.error("Could not start recognition", e);
         }
+    } else {
+        recognitionRef.current?.stop();
     }
   }, [listeningState]);
 
@@ -205,17 +212,16 @@ export default function ConversationalAgent() {
   const toggleConversation = () => {
     if (listeningState === ListeningState.IDLE) {
       setListeningState(ListeningState.LISTENING);
-       // Only clear conversation if it's a truly new one
-      if (conversationHistoryRef.current.length === 0) {
-        setConversation([]);
-      }
+       // Only clear conversation visuals and history if it's a new session
+      conversationHistoryRef.current = [];
+      setConversation([]);
+      setLastMealData(null);
       toast({ title: 'Conversation started.', description: "I'm listening." });
     } else {
       setListeningState(ListeningState.IDLE);
-      recognitionRef.current.stop();
       if (audioRef.current) audioRef.current.pause();
-      // Clear history when conversation is explicitly stopped
       conversationHistoryRef.current = [];
+      setLastMealData(null);
       toast({ title: 'Conversation ended.' });
     }
   };
@@ -259,9 +265,9 @@ export default function ConversationalAgent() {
         
         <div className="space-y-4 pt-4 text-left max-h-96 overflow-y-auto pr-4">
             {conversation.map((entry, index) => (
-                <div key={index} className={`flex items-start gap-3 ${entry.actor === 'user' ? 'justify-end' : ''}`}>
+                <div key={index} className={`flex items-start gap-3 ${entry.actor === 'user' ? 'flex-row-reverse' : ''}`}>
                     {entry.actor === 'ai' && (
-                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-primary-foreground shrink-0">
                             <Bot className="h-5 w-5" />
                         </div>
                     )}
@@ -269,7 +275,7 @@ export default function ConversationalAgent() {
                         <p>{entry.text}</p>
                     </div>
                      {entry.actor === 'user' && (
-                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary text-secondary-foreground">
+                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary text-secondary-foreground shrink-0">
                             <User className="h-5 w-5" />
                         </div>
                     )}
