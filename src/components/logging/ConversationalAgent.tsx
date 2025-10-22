@@ -3,14 +3,14 @@
 import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { textToSpeech } from '@/ai/flows/text-to-speech';
 import { conversationalMealLogging } from '@/ai/flows/conversational-meal-logging';
+import { textToSpeech } from '@/ai/flows/text-to-speech';
 import { Bot, Mic, User } from 'lucide-react';
 
 enum ListeningState {
   IDLE, // Not listening, waiting for user to start
-  LISTENING_FOR_QUERY, // Listening for user's command
-  PROCESSING, // AI is thinking
+  LISTENING, // Actively listening for user input
+  PROCESSING, // AI is processing the input
   RESPONDING, // AI is speaking
 }
 
@@ -22,10 +22,12 @@ export default function ConversationalAgent() {
   const audioRef = useRef<HTMLAudioElement>(null);
   const conversationHistoryRef = useRef<string[]>([]);
   const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const finalTranscriptRef = useRef<string>('');
 
   const speak = async (text: string) => {
     setListeningState(ListeningState.RESPONDING);
     try {
+      // Use the existing text-to-speech flow
       const { media } = await textToSpeech(text);
       if (audioRef.current) {
         audioRef.current.src = media;
@@ -40,90 +42,16 @@ export default function ConversationalAgent() {
         title: 'Speech Generation Failed',
         description: 'Could not generate audio for the response.',
       });
-      setListeningState(ListeningState.LISTENING_FOR_QUERY); // Go back to listening
+      // Even if speech fails, go back to listening
+      setListeningState(ListeningState.LISTENING);
     }
   };
 
-  useEffect(() => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      toast({
-        variant: 'destructive',
-        title: 'Browser Not Supported',
-        description: 'Your browser does not support the required voice APIs.',
-      });
-      return;
-    }
-
-    recognitionRef.current = new SpeechRecognition();
-    recognitionRef.current.continuous = true;
-    recognitionRef.current.interimResults = true;
-
-    recognitionRef.current.onresult = (event: any) => {
-      const transcript = Array.from(event.results)
-        .map((result: any) => result[0])
-        .map((result) => result.transcript)
-        .join('');
-      
-      if (listeningState === ListeningState.LISTENING_FOR_QUERY && transcript) {
-        // Reset silence timer on new speech
-        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-
-        silenceTimerRef.current = setTimeout(() => {
-          if (transcript.trim()) {
-            handleQuery(transcript.trim());
-          }
-        }, 1500); // 1.5 seconds of silence to trigger query
-      }
-    };
-
-    recognitionRef.current.onerror = (event: any) => {
-      if (event.error !== 'no-speech') {
-        console.error('Speech recognition error:', event.error);
-        if (listeningState !== ListeningState.IDLE) {
-          setListeningState(ListeningState.IDLE);
-          toast({
-            variant: "destructive",
-            title: "Voice Error",
-            description: "There was an issue with voice recognition. Please try again."
-          })
-        }
-      }
-    };
-    
-    recognitionRef.current.onend = () => {
-        // The recognition service can sometimes stop. If we're not idle, restart it.
-        if (listeningState !== ListeningState.IDLE) {
-           try {
-               recognitionRef.current?.start();
-           } catch(e) {
-               console.error("Could not restart recognition service: ", e);
-           }
-        }
-    };
-
-    if (audioRef.current) {
-        audioRef.current.onended = () => {
-            // After AI finishes speaking, go back to listening for user's next turn
-            setListeningState(ListeningState.LISTENING_FOR_QUERY);
-        };
-    }
-
-    return () => {
-      recognitionRef.current?.stop();
-      if (audioRef.current) {
-        audioRef.current.pause();
-      }
-      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [listeningState, toast]);
-
   const handleQuery = async (query: string) => {
     if (!query) {
-        setListeningState(ListeningState.LISTENING_FOR_QUERY);
-        return;
-    };
+      setListeningState(ListeningState.LISTENING);
+      return;
+    }
     setListeningState(ListeningState.PROCESSING);
     setConversation(prev => [...prev, { actor: 'user', text: query }]);
     conversationHistoryRef.current.push(`User: ${query}`);
@@ -133,47 +61,139 @@ export default function ConversationalAgent() {
         userQuery: query,
         conversationHistory: conversationHistoryRef.current,
       });
-      
+
       await speak(result.response);
 
       if (result.isEndOfConversation) {
-        // Conversation is done, reset history for the next interaction
         conversationHistoryRef.current = [];
-        // After speaking, the onended event will set state back to listening
-      } 
-      
+        // The onended audio event will handle transitioning back to listening
+      }
+
     } catch (error) {
       console.error('Error in conversational flow:', error);
-      await speak("Sorry, I ran into a problem. Please try again.");
+      await speak("Sorry, I ran into an issue. Let's try that again.");
     }
   };
 
-  const toggleMainListening = () => {
+  const processSpeech = (event: any) => {
+    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+    
+    let interimTranscript = '';
+    finalTranscriptRef.current = '';
+
+    for (let i = 0; i < event.results.length; ++i) {
+      if (event.results[i].isFinal) {
+        finalTranscriptRef.current += event.results[i][0].transcript;
+      } else {
+        interimTranscript += event.results[i][0].transcript;
+      }
+    }
+    
+    // You could update the UI with the interim transcript here if desired
+
+    if (finalTranscriptRef.current) {
+        handleQuery(finalTranscriptRef.current.trim());
+    } else {
+        // If there's no final transcript, set a timer to process the interim one after a pause.
+        // This handles cases where the user pauses mid-sentence.
+        silenceTimerRef.current = setTimeout(() => {
+            if (interimTranscript.trim()) {
+                handleQuery(interimTranscript.trim());
+            } else if (listeningState === ListeningState.LISTENING) {
+                // If there's truly no speech, just keep listening
+            }
+        }, 1200); // 1.2 seconds of silence triggers processing
+    }
+  };
+
+  useEffect(() => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      toast({
+        variant: 'destructive',
+        title: 'Browser Not Supported',
+        description: 'Your browser does not support the Web Speech API.',
+      });
+      return;
+    }
+
+    recognitionRef.current = new SpeechRecognition();
+    const recognition = recognitionRef.current;
+    recognition.continuous = true; // Keep listening even after user pauses
+    recognition.interimResults = true;
+
+    recognition.onresult = processSpeech;
+
+    recognition.onerror = (event: any) => {
+      if (event.error !== 'no-speech' && event.error !== 'aborted') {
+        console.error('Speech recognition error:', event.error);
+        toast({
+          variant: "destructive",
+          title: "Voice Error",
+          description: `An error occurred: ${event.error}. Please try again.`
+        });
+        setListeningState(ListeningState.IDLE);
+        recognition.stop();
+      }
+    };
+    
+    recognition.onend = () => {
+        // If the service stops for any reason and we weren't trying to stop it, restart it.
+        if (listeningState !== ListeningState.IDLE && listeningState !== ListeningState.PROCESSING) {
+           try {
+               recognition.start();
+           } catch(e) {
+               // This can happen if the user navigates away
+               console.error("Could not restart recognition service.", e);
+               setListeningState(ListeningState.IDLE);
+           }
+        }
+    };
+
+    if (audioRef.current) {
+        audioRef.current.onended = () => {
+            // After AI is done speaking, immediately go back to listening
+            setListeningState(ListeningState.LISTENING);
+        };
+    }
+
+    // Cleanup function
+    return () => {
+      recognition?.stop();
+      if (audioRef.current) audioRef.current.pause();
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run this once
+
+
+  const toggleConversation = () => {
     if (listeningState === ListeningState.IDLE) {
-      setListeningState(ListeningState.LISTENING_FOR_QUERY);
+      setListeningState(ListeningState.LISTENING);
       recognitionRef.current.start();
       setConversation([]);
       conversationHistoryRef.current = [];
-      toast({ title: 'Conversational agent activated.', description: `I'm listening.` });
+      toast({ title: 'Conversation started.', description: "I'm listening." });
     } else {
       setListeningState(ListeningState.IDLE);
       recognitionRef.current.stop();
-      toast({ title: 'Conversational agent deactivated.' });
+      if (audioRef.current) audioRef.current.pause();
+      toast({ title: 'Conversation ended.' });
     }
   };
 
   const getStatus = () => {
       switch(listeningState) {
           case ListeningState.IDLE:
-              return "Click the mic to start the conversation.";
-          case ListeningState.LISTENING_FOR_QUERY:
-              return `Listening...`;
+              return "Click the mic to start a conversation.";
+          case ListeningState.LISTENING:
+              return `Listening... Speak when you're ready.`;
           case ListeningState.PROCESSING:
               return "Thinking...";
           case ListeningState.RESPONDING:
               return "Responding...";
           default:
-              return "Click the mic to start."
+              return "Click the mic to begin."
       }
   }
 
@@ -182,15 +202,17 @@ export default function ConversationalAgent() {
       <CardHeader>
         <CardTitle>Conversational Logging</CardTitle>
         <CardDescription>
-          Have a natural conversation with NutriCoach AI to log your meals.
+          Have a natural, hands-free conversation to log your meals. No wake word needed after starting.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4 text-center">
         <div className="flex justify-center">
             <button
-                className={`h-24 w-24 rounded-full flex items-center justify-center transition-colors
-                    ${listeningState !== ListeningState.IDLE ? 'bg-green-500 text-white' : 'bg-muted text-muted-foreground'}`}
-                onClick={toggleMainListening}
+                className={`h-24 w-24 rounded-full flex items-center justify-center transition-all duration-300 ease-in-out
+                    ${listeningState === ListeningState.LISTENING ? 'bg-green-500 text-white shadow-lg scale-110' 
+                    : listeningState !== ListeningState.IDLE ? 'bg-blue-500 text-white'
+                    : 'bg-muted text-muted-foreground'}`}
+                onClick={toggleConversation}
             >
                 <Mic className="h-10 w-10" />
             </button>
@@ -205,7 +227,7 @@ export default function ConversationalAgent() {
                             <Bot className="h-5 w-5" />
                         </div>
                     )}
-                    <div className={`rounded-lg p-3 max-w-[80%] ${entry.actor === 'ai' ? 'bg-muted' : 'bg-accent text-accent-foreground'}`}>
+                    <div className={`rounded-lg p-3 max-w-[80%] shadow-sm ${entry.actor === 'ai' ? 'bg-muted' : 'bg-accent text-accent-foreground'}`}>
                         <p>{entry.text}</p>
                     </div>
                      {entry.actor === 'user' && (
