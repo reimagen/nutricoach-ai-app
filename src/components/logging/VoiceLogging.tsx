@@ -13,21 +13,52 @@ import {
 } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import { voiceMealLogging, VoiceMealLoggingOutput } from '@/ai/flows/voice-meal-logging';
-// This server action would save the meal to Firestore
-// import { saveMealEntry } from '@/lib/actions';
+import { textToSpeech } from '@/ai/flows/text-to-speech';
 
 export default function VoiceLogging() {
   const [isRecording, setIsRecording] = useState(false);
   const [transcript, setTranscript] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<VoiceMealLoggingOutput | null>(null);
+  const [isAwaitingClarification, setIsAwaitingClarification] = useState(false);
+  const [originalTranscript, setOriginalTranscript] = useState('');
   const { toast } = useToast();
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
+
 
   const recognitionRef = useRef<any>(null);
 
+  const speak = async (text: string) => {
+    try {
+      const { media } = await textToSpeech(text);
+      setAudioUrl(media);
+    } catch (error) {
+       console.error('Error generating speech:', error);
+       toast({
+         variant: 'destructive',
+         title: 'Speech Generation Failed',
+         description: 'Could not generate audio for the response.',
+       });
+       // Fallback to browser's built-in speech synthesis
+        if ('speechSynthesis' in window) {
+            window.speechSynthesis.cancel();
+            const utterance = new SpeechSynthesisUtterance(text);
+            window.speechSynthesis.speak(utterance);
+        }
+    }
+  };
+
+  useEffect(() => {
+    if (audioUrl && audioRef.current) {
+        audioRef.current.play().catch(e => console.error("Audio playback failed", e));
+    }
+  }, [audioUrl]);
+
+
   useEffect(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (SpeechRecognition) {
+    if (SpeechRecognition && 'speechSynthesis' in window) {
       recognitionRef.current = new SpeechRecognition();
       recognitionRef.current.continuous = true;
       recognitionRef.current.interimResults = true;
@@ -54,39 +85,48 @@ export default function VoiceLogging() {
         setIsRecording(false);
       };
     } else {
-        toast({
-          variant: 'destructive',
-          title: 'Browser Not Supported',
-          description: 'Your browser does not support voice recognition.',
-        });
+      toast({
+        variant: 'destructive',
+        title: 'Browser Not Supported',
+        description: 'Your browser does not support the required voice APIs.',
+      });
     }
 
     return () => {
-        if(recognitionRef.current) {
-            recognitionRef.current.stop();
-        }
-    }
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+      // Ensure any speaking is stopped when the component unmounts
+      if (audioRef.current) {
+        audioRef.current.pause();
+        setAudioUrl(null);
+      }
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
   }, [toast]);
 
-  const toggleRecording = () => {
-    if (isRecording) {
-      recognitionRef.current.stop();
-      setIsRecording(false);
-      if (transcript) handleAnalysis();
-    } else {
-      setTranscript('');
-      setAnalysisResult(null);
-      recognitionRef.current.start();
-      setIsRecording(true);
-    }
-  };
-  
-  const handleAnalysis = async () => {
-    if (!transcript) return;
+  const handleAnalysis = async (textToAnalyze: string) => {
+    if (!textToAnalyze) return;
     setIsLoading(true);
+    if (isAwaitingClarification) {
+      setAnalysisResult(null);
+    }
     try {
-      const result = await voiceMealLogging({ speechText: transcript });
+      const result = await voiceMealLogging({ speechText: textToAnalyze });
+      
+      // Make the AI speak its response!
+      await speak(result.mealDescription);
+      
       setAnalysisResult(result);
+      if (result.mealCategory === 'unknown') {
+        setIsAwaitingClarification(true);
+        setOriginalTranscript(textToAnalyze);
+      } else {
+        setIsAwaitingClarification(false);
+        setOriginalTranscript('');
+      }
     } catch (error) {
       console.error(error);
       toast({
@@ -99,28 +139,74 @@ export default function VoiceLogging() {
     }
   };
 
+  const toggleRecording = () => {
+    if (isRecording) {
+      // STOP recording
+      recognitionRef.current.stop();
+      setIsRecording(false);
+       // Stop any speaking that might be happening
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+      if (isAwaitingClarification) {
+        const combinedTranscript = `${originalTranscript}. The user clarified that this was for ${transcript}.`;
+        handleAnalysis(combinedTranscript);
+      } else {
+        if (transcript) {
+          handleAnalysis(transcript);
+        }
+      }
+    } else {
+      // START recording
+      if (!isAwaitingClarification) {
+        setAnalysisResult(null);
+        setTranscript('');
+        setOriginalTranscript('');
+      } else {
+        setTranscript('');
+      }
+      recognitionRef.current.start();
+      setIsRecording(true);
+    }
+  };
+
   const handleSaveMeal = async () => {
     if (!analysisResult) return;
     // await saveMealEntry({ ... }); // Server action call
     toast({
       title: 'Meal Saved!',
-      description: `${analysisResult.mealDescription} has been added to your log.`,
+      description: `Your ${analysisResult.mealCategory} has been added to your log.`,
     });
     setAnalysisResult(null);
     setTranscript('');
+    setOriginalTranscript('');
+    setIsAwaitingClarification(false);
   };
-  
+
   const handleCancel = () => {
-      setAnalysisResult(null);
-      setTranscript('');
-  }
+    setAnalysisResult(null);
+    setTranscript('');
+    setOriginalTranscript('');
+    setIsAwaitingClarification(false);
+    if (audioRef.current) {
+        audioRef.current.pause();
+    }
+    if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+    }
+  };
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Log with your voice</CardTitle>
         <CardDescription>
-          Click the microphone, describe your meal, and let AI do the rest.
+          {isAwaitingClarification
+            ? 'The AI is waiting for your answer. Click the mic to respond.'
+            : 'Click the microphone, describe your meal, and let AI do the rest.'}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4 text-center">
@@ -130,45 +216,62 @@ export default function VoiceLogging() {
           onClick={toggleRecording}
           disabled={isLoading}
         >
-          <Mic className="h-8 w-8" />
+          {isLoading ? <Loader2 className="h-8 w-8 animate-spin" /> : <Mic className="h-8 w-8" />}
         </Button>
-        <p className="min-h-[2rem] text-muted-foreground">{isRecording ? "Listening..." : "Click to start recording"}</p>
-        
+        <p className="min-h-[2rem] text-muted-foreground">{isRecording ? 'Listening...' : (isAwaitingClarification ? 'Click to answer' : 'Click to start recording')}</p>
+
         {transcript && !analysisResult && (
           <p className="text-lg p-4 bg-muted rounded-md">{transcript}</p>
         )}
-        
-        {isLoading && (
-            <div className="flex flex-col items-center gap-2">
-                <Loader2 className="h-8 w-8 animate-spin" />
-                <p>Analyzing your meal...</p>
-            </div>
+
+        {isLoading && !analysisResult && !isAwaitingClarification && (
+          <div className="flex flex-col items-center gap-2">
+            <Loader2 className="h-8 w-8 animate-spin" />
+            <p>Analyzing your meal...</p>
+          </div>
         )}
 
         {analysisResult && (
-            <Card className="text-left">
-                <CardHeader>
-                    <CardTitle>Confirm Your Meal</CardTitle>
-                </CardHeader>
-                <CardContent>
-                    <p className="font-semibold">{analysisResult.mealDescription}</p>
-                    <div className="mt-4 grid grid-cols-2 lg:grid-cols-4 gap-2 text-sm">
-                        <p><strong>Calories:</strong> {analysisResult.estimatedMacros.caloriesKcal} kcal</p>
-                        <p><strong>Protein:</strong> {analysisResult.estimatedMacros.proteinG} g</p>
-                        <p><strong>Carbs:</strong> {analysisResult.estimatedMacros.carbohydrateG} g</p>
-                        <p><strong>Fat:</strong> {analysisResult.estimatedMacros.fatG} g</p>
+          <Card className="text-left">
+            <CardHeader>
+              <CardTitle>Confirm Your Meal</CardTitle>
+              <CardDescription>{analysisResult.mealDescription}</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                {analysisResult.items.map((item, index) => (
+                  <div key={index} className="flex justify-between items-center p-2 bg-muted/50 rounded-lg">
+                    <p className="font-medium">{item.name}</p>
+                    <div className="grid grid-cols-4 gap-x-2 text-xs text-right">
+                      <span>{item.macros.caloriesKcal}kcal</span>
+                      <span>{item.macros.proteinG}g P</span>
+                      <span>{item.macros.carbohydrateG}g C</span>
+                      <span>{item.macros.fatG}g F</span>
                     </div>
-                </CardContent>
-                 <CardFooter className="flex justify-end gap-2">
-                    <Button variant="outline" onClick={handleCancel}>
-                        <X className="mr-2 h-4 w-4" /> Cancel
-                    </Button>
-                    <Button onClick={handleSaveMeal}>
-                        <Save className="mr-2 h-4 w-4" /> Save Meal
-                    </Button>
-                </CardFooter>
-            </Card>
+                  </div>
+                ))}
+              </div>
+              <div className="flex justify-between items-center p-2 bg-muted rounded-lg font-bold">
+                <p>Total</p>
+                <div className="grid grid-cols-4 gap-x-2 text-sm text-right">
+                  <span>{analysisResult.totalMacros.caloriesKcal}kcal</span>
+                  <span>{analysisResult.totalMacros.proteinG}g P</span>
+                  <span>{analysisResult.totalMacros.carbohydrateG}g C</span>
+                  <span>{analysisResult.totalMacros.fatG}g F</span>
+                </div>
+              </div>
+            </CardContent>
+            <CardFooter className="flex justify-end gap-2">
+              <Button variant="outline" onClick={handleCancel}>
+                <X className="mr-2 h-4 w-4" /> Cancel
+              </Button>
+              <Button onClick={handleSaveMeal} disabled={isAwaitingClarification || isLoading}>
+                <Save className="mr-2 h-4 w-4" /> Save Meal
+              </Button>
+            </CardFooter>
+          </Card>
         )}
+        {audioUrl && <audio ref={audioRef} src={audioUrl} className="hidden" />}
       </CardContent>
     </Card>
   );
