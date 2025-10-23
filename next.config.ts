@@ -1,5 +1,4 @@
 import type {NextConfig} from 'next';
-import getConfig from 'next/config';
 
 const nextConfig: NextConfig = {
   /* config options here */
