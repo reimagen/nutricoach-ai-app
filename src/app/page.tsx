@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -39,7 +38,8 @@ export default function DashboardPage() {
     const q = query(
       mealsCollection,
       where('userId', '==', user.uid),
-      where('createdAt', '>=', today)
+      where('createdAt', '>=', today),
+      orderBy('createdAt', 'desc')
     );
 
     const unsubscribe = onSnapshot(
