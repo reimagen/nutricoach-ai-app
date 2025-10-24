@@ -75,6 +75,7 @@ export const useMacroAgent = () => {
         playbackAudioContextRef.current = null;
         
         setStatus(AgentStatus.IDLE);
+        setTranscript([]);
         console.log('Disconnected cleanly.');
     }
   }, [status]);
@@ -211,7 +212,7 @@ export const useMacroAgent = () => {
         setError(errorMessage);
         setStatus(AgentStatus.ERROR);
     } finally {
-      if (status !== AgentStatus.IDLE) {
+      if (status !== AgentStatus.IDLE && status !== AgentStatus.DISCONNECTING) {
         await disconnect();
       }
     }
@@ -221,7 +222,8 @@ export const useMacroAgent = () => {
     return () => {
       disconnect();
     }
-  }, [disconnect]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const resetTranscript = () => {
     setTranscript([]);
