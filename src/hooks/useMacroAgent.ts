@@ -57,17 +57,25 @@ export const useMacroAgent = () => {
   const mediaStreamRef = useRef<MediaStream | null>(null);
 
   const disconnect = useCallback(async () => {
-    if (!connectionRef.current) return;
+    if (!connectionRef.current && !mediaStreamRef.current) return;
     setStatus(AgentStatus.DISCONNECTING);
     try {
       processorRef.current?.disconnect();
       sourceRef.current?.disconnect();
-      audioContextRef.current?.close();
+      // Only close the audio context if it exists and is not already closed
+      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+        await audioContextRef.current.close();
+      }
       mediaStreamRef.current?.getTracks().forEach(track => track.stop());
-      await connectionRef.current.close();
+      
+      // If connection exists and has a close method
+      if (connectionRef.current && typeof connectionRef.current.close === 'function') {
+        await connectionRef.current.close();
+      }
+
     } catch (e: any) {
       console.error('Error during disconnect:', e);
-      setError('Failed to disconnect cleanly.');
+      // Don't set an error message on a normal disconnect
     } finally {
       connectionRef.current = null;
       audioContextRef.current = null;
@@ -88,12 +96,16 @@ export const useMacroAgent = () => {
     setError(null);
 
     try {
+      // This is insecure and should be handled on the server.
+      // For this prototype, we'll proceed, but in a real app,
+      // you would have a server endpoint that manages the API key.
       if (!process.env.NEXT_PUBLIC_GEMINI_API_KEY) {
-        throw new Error('Missing NEXT_PUBLIC_GEMINI_API_KEY environment variable. Please add it to your .env.local file.');
+        throw new Error('This app requires a Gemini API key. Please add NEXT_PUBLIC_GEMINI_API_KEY to your .env.local file.');
       }
       aiRef.current = new GoogleGenerativeAI(
         process.env.NEXT_PUBLIC_GEMINI_API_KEY
       );
+
 
       const audioContext = new AudioContext({sampleRate: 16000});
       audioContextRef.current = audioContext;
@@ -120,22 +132,20 @@ export const useMacroAgent = () => {
         onopen: () => {
           console.log('Connection opened');
           setStatus(AgentStatus.CONNECTED);
-          // Do not reset transcript here to allow text/photo before voice
         },
         onmessage: async (res: any) => {
           if (res.response.speech?.audio) {
+            // Need to create a new audio context for playback if the main one is closed or closing
+            const playbackAudioContext = new AudioContext({sampleRate: 24000});
             const audioData = res.response.speech.audio.content;
-            const decodedData = await decodeAudioData(audioData.buffer);
-            const source = audioContext.createBufferSource();
-            const audioBuffer = audioContext.createBuffer(
-              1,
-              decodedData.length,
-              24000
-            );
-            audioBuffer.copyToChannel(decodedData, 0);
-            source.buffer = audioBuffer;
-            source.connect(audioContext.destination);
+            const decodedData = await playbackAudioContext.decodeAudioData(audioData.buffer);
+            const source = playbackAudioContext.createBufferSource();
+            source.buffer = decodedData;
+            source.connect(playbackAudioContext.destination);
             source.start();
+            source.onended = () => {
+              playbackAudioContext.close();
+            }
           }
           if (res.response.text) {
             setTranscript(prev => [...prev, {actor: 'ai', text: res.response.text}]);
@@ -155,7 +165,6 @@ export const useMacroAgent = () => {
 
       connectionRef.current = await aiRef.current.live.connect({
         model: 'gemini-2.5-flash-native-audio-preview-09-2025',
-        // Optional, but recommended.
         history: transcript.map(t => ({
           role: t.actor === 'ai' ? 'model' : 'user',
           parts: [{ text: t.text }]
@@ -180,11 +189,10 @@ export const useMacroAgent = () => {
     } catch (e: any)
     {
       console.error('Failed to connect:', e);
-      setError(
-        e.message.includes('permission denied')
-          ? 'Microphone permission denied.'
-          : 'Failed to connect.'
-      );
+      const errorMessage = e.message.includes('permission denied') 
+        ? 'Microphone permission denied. Please enable it in your browser settings.'
+        : `Failed to connect: ${e.message}`;
+      setError(errorMessage);
       setStatus(AgentStatus.ERROR);
       await disconnect();
     }
