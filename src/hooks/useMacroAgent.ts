@@ -3,17 +3,19 @@
 
 import {useState, useRef, useCallback, useEffect} from 'react';
 
-// --- Public (but not exported) audio worklet script ---
 // This code will be injected into a Blob and used to create the AudioWorklet.
-// It runs in a separate thread, capturing audio without blocking the main UI thread.
 const workletCode = `
   class AudioRecorder extends AudioWorkletProcessor {
-    // This processor just passes the audio data through to the main thread.
     process(inputs, outputs, parameters) {
       const input = inputs[0];
       if (input.length > 0) {
         // Post the raw Float32Array data back to the main thread.
-        this.port.postMessage(input[0]);
+        // Convert to Int16 before posting
+        const pcm16 = new Int16Array(input[0].length);
+        for(let i = 0; i < input[0].length; i++) {
+            pcm16[i] = Math.floor(input[0][i] * 32768);
+        }
+        this.port.postMessage(pcm16, [pcm16.buffer]);
       }
       return true; // Keep the processor alive.
     }
@@ -21,7 +23,6 @@ const workletCode = `
   registerProcessor('audio-recorder', AudioRecorder);
 `;
 
-// --- Type Definitions ---
 export type ConversationTurn = {
   actor: 'user' | 'ai';
   text: string;
@@ -35,22 +36,17 @@ export enum AgentStatus {
   ERROR,
 }
 
-// --- The Main React Hook ---
 export const useMacroAgent = () => {
   const [status, setStatus] = useState<AgentStatus>(AgentStatus.IDLE);
   const [transcript, setTranscript] = useState<ConversationTurn[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  // Refs to manage the audio and connection state
   const audioContextRef = useRef<AudioContext | null>(null);
   const workletNodeRef = useRef<AudioWorkletNode | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const playbackAudioContextRef = useRef<AudioContext | null>(null);
 
-  /**
-   * Disconnects from the agent, stops audio processing, and cleans up resources.
-   */
   const disconnect = useCallback(async () => {
     if (status === AgentStatus.IDLE || status === AgentStatus.DISCONNECTING) return;
     
@@ -58,14 +54,10 @@ export const useMacroAgent = () => {
     console.log('Disconnecting...');
 
     try {
-        // Abort any ongoing fetch requests.
         abortControllerRef.current?.abort();
         abortControllerRef.current = null;
-
-        // Stop the microphone tracks.
         mediaStreamRef.current?.getTracks().forEach(track => track.stop());
 
-        // Disconnect and close audio contexts.
         workletNodeRef.current?.disconnect();
         if (audioContextRef.current?.state !== 'closed') {
             await audioContextRef.current?.close();
@@ -73,12 +65,9 @@ export const useMacroAgent = () => {
         if (playbackAudioContextRef.current?.state !== 'closed') {
             await playbackAudioContextRef.current?.close();
         }
-
     } catch (e: any) {
         console.error('Error during disconnect:', e);
-        // We don't set a public error here as it's a cleanup step.
     } finally {
-        // Reset all refs and state.
         mediaStreamRef.current = null;
         workletNodeRef.current = null;
         audioContextRef.current = null;
@@ -90,9 +79,6 @@ export const useMacroAgent = () => {
   }, [status]);
 
 
-  /**
-   * Connects to the agent, starts microphone capture, and establishes the two-way audio stream.
-   */
   const connect = useCallback(async () => {
     if (status === AgentStatus.CONNECTED || status === AgentStatus.CONNECTING) {
       console.log('Already connected or connecting.');
@@ -104,7 +90,6 @@ export const useMacroAgent = () => {
     abortControllerRef.current = new AbortController();
 
     try {
-      // --- 1. Set up Web Audio API ---
       const audioContext = new AudioContext({ sampleRate: 16000 });
       audioContextRef.current = audioContext;
       
@@ -113,8 +98,6 @@ export const useMacroAgent = () => {
       });
       mediaStreamRef.current = mediaStream;
 
-      // --- 2. Create the AudioWorklet ---
-      // This is the modern, performant way to process audio off the main thread.
       const workletURL = URL.createObjectURL(new Blob([workletCode], { type: 'application/javascript' }));
       await audioContext.audioWorklet.addModule(workletURL);
       const workletNode = new AudioWorkletNode(audioContext, 'audio-recorder');
@@ -122,20 +105,14 @@ export const useMacroAgent = () => {
 
       const source = audioContext.createMediaStreamSource(mediaStream);
       source.connect(workletNode);
-      workletNode.connect(audioContext.destination); // Connect to output to avoid garbage collection
+      // Not connecting to destination, as we only want to process and send.
 
-      // --- 3. Set up the Streaming Fetch ---
       const { readable, writable } = new TransformStream();
-      const writer = writable.createWriter();
+      const writer = writable.getWriter();
       
-      // When the worklet sends audio data, write it to our transform stream.
-      workletNode.port.onmessage = (event: MessageEvent<Float32Array>) => {
+      workletNode.port.onmessage = (event: MessageEvent<Int16Array>) => {
         if (writer) {
-            const pcm16 = new Int16Array(event.data.length);
-            for(let i = 0; i < event.data.length; i++) {
-                pcm16[i] = Math.floor(event.data[i] * 32768);
-            }
-            writer.write(pcm16.buffer);
+            writer.write(event.data.buffer);
         }
       };
 
@@ -146,7 +123,7 @@ export const useMacroAgent = () => {
         headers: { 'Content-Type': 'application/octet-stream' },
         body: readable,
         signal: abortControllerRef.current.signal,
-        //@ts-ignore - duplex is a new Fetch API feature
+        //@ts-ignore
         duplex: 'half' 
       });
 
@@ -157,7 +134,6 @@ export const useMacroAgent = () => {
       setStatus(AgentStatus.CONNECTED);
       console.log("Connection established. Streaming...");
 
-      // --- 4. Handle the Response Stream from the Server ---
       const reader = response.body.getReader();
       playbackAudioContextRef.current = new AudioContext({ sampleRate: 24000 });
       
@@ -168,8 +144,6 @@ export const useMacroAgent = () => {
             break;
         }
 
-        // We try to parse it as JSON first. If it fails, we assume it's audio.
-        // This is more robust than the previous try/catch on decodeAudioData.
         let isText = false;
         try {
             const textChunk = new TextDecoder().decode(value);
@@ -184,13 +158,23 @@ export const useMacroAgent = () => {
 
         if (!isText && playbackAudioContextRef.current) {
             try {
-                const decodedData = await playbackAudioContextRef.current.decodeAudioData(value.buffer);
+                // The server should be sending raw PCM audio, not a file format.
+                // We need to construct an AudioBuffer from the raw PCM data.
+                const audioBuffer = playbackAudioContextRef.current.createBuffer(
+                  1, // 1 channel (mono)
+                  value.byteLength / 2, // number of frames
+                  24000 // sample rate
+                );
+                
+                const float32Data = new Float32Array(value.buffer);
+                audioBuffer.copyToChannel(float32Data, 0);
+
                 const source = playbackAudioContextRef.current.createBufferSource();
-                source.buffer = decodedData;
+                source.buffer = audioBuffer;
                 source.connect(playbackAudioContextRef.current.destination);
                 source.start();
             } catch (audioError) {
-                console.warn("Could not decode audio chunk.", audioError);
+                console.warn("Could not decode or play audio chunk.", audioError);
             }
         }
       }
@@ -203,18 +187,14 @@ export const useMacroAgent = () => {
         console.error('Error in connect function:', e);
         setError(errorMessage);
         setStatus(AgentStatus.ERROR);
-        // Ensure we clean up even if connection fails.
         await disconnect();
     } finally {
-        // If the component unmounts while connected, this ensures cleanup.
-        if (abortControllerRef.current && !abortControllerRef.current.signal.aborted) {
-            // This is a gentle disconnect if the process finishes without errors.
-            await disconnect();
-        }
+      if (status === AgentStatus.CONNECTED) {
+        await disconnect();
+      }
     }
   }, [disconnect, status, transcript]);
   
-  // Cleanup effect to disconnect on component unmount
   useEffect(() => {
     return () => {
       disconnect();
@@ -226,8 +206,13 @@ export const useMacroAgent = () => {
   }
 
   const updateUserTranscript = (text: string) => {
-    setTranscript(prev => [...prev, { actor: 'user', text }]);
-  }
+    const newTurn: ConversationTurn = { actor: 'user', text };
+    setTranscript(prev => {
+      const updatedTranscript = [...prev, newTurn];
+      console.log('Updated Transcript:', updatedTranscript);
+      return updatedTranscript;
+    });
+  };
 
   return {status, transcript, error, connect, disconnect, updateUserTranscript, resetTranscript};
 };
