@@ -2,32 +2,16 @@
 'use client';
 
 import {useState, useRef, useCallback} from 'react';
-import {GoogleGenerativeAI} from '@google/generative-ai';
 
 // --- Helper Functions for Audio Processing ---
 
-// PCM-16 to Float32
-function encode(p_pcm) {
-  const f32 = new Float32Array(p_pcm.length);
-  for (let i = 0; i < p_pcm.length; i++) {
-    f32[i] = p_pcm[i] / 32768;
-  }
-  return f32;
-}
-
 // Float32 to PCM-16
-function decode(p_f32) {
+function decode(p_f32: Float32Array): Int16Array {
   const pcm = new Int16Array(p_f32.length);
   for (let i = 0; i < p_f32.length; i++) {
     pcm[i] = Math.floor(p_f32[i] * 32768);
   }
   return pcm;
-}
-
-async function decodeAudioData(audioData) {
-  const audioContext = new AudioContext({sampleRate: 24000});
-  const decoded = await audioContext.decodeAudioData(audioData);
-  return decoded.getChannelData(0);
 }
 
 // --- React Hook ---
@@ -50,58 +34,61 @@ export const useMacroAgent = () => {
   const [transcript, setTranscript] = useState<ConversationTurn[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  const aiRef = useRef<any>(null);
-  const connectionRef = useRef<any>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
 
   const disconnect = useCallback(async () => {
-    if (!connectionRef.current && !mediaStreamRef.current) return;
+    if (status === AgentStatus.IDLE || status === AgentStatus.DISCONNECTING) return;
+    
     setStatus(AgentStatus.DISCONNECTING);
     try {
-      processorRef.current?.disconnect();
-      sourceRef.current?.disconnect();
-      // Only close the audio context if it exists and is not already closed
-      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-        await audioContextRef.current.close();
-      }
-      mediaStreamRef.current?.getTracks().forEach(track => track.stop());
-      
-      // If connection exists and has a close method
-      if (connectionRef.current && typeof connectionRef.current.close === 'function') {
-        await connectionRef.current.close();
-      }
+        // Abort the ongoing fetch request
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+            abortControllerRef.current = null;
+        }
 
+        // Disconnect Web Audio API nodes
+        processorRef.current?.disconnect();
+        sourceRef.current?.disconnect();
+
+        // Stop microphone tracks
+        mediaStreamRef.current?.getTracks().forEach(track => track.stop());
+
+        // Close the audio context
+        if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+            await audioContextRef.current.close();
+        }
     } catch (e: any) {
-      console.error('Error during disconnect:', e);
-      // Don't set an error message on a normal disconnect
+        console.error('Error during disconnect:', e);
+        setError('An error occurred while disconnecting.');
     } finally {
-      connectionRef.current = null;
-      audioContextRef.current = null;
-      processorRef.current = null;
-      sourceRef.current = null;
-      mediaStreamRef.current = null;
-      setStatus(AgentStatus.IDLE);
+        // Clear all refs
+        audioContextRef.current = null;
+        processorRef.current = null;
+        sourceRef.current = null;
+        mediaStreamRef.current = null;
+        setStatus(AgentStatus.IDLE);
+        console.log('Disconnected');
     }
-  }, []);
+}, [status]);
+
 
   const connect = useCallback(async () => {
-    if (connectionRef.current) {
-      console.log('Already connected.');
+    if (status === AgentStatus.CONNECTED || status === AgentStatus.CONNECTING) {
+      console.log('Already connected or connecting.');
       return;
     }
 
     setStatus(AgentStatus.CONNECTING);
     setError(null);
+    abortControllerRef.current = new AbortController();
 
     try {
-      aiRef.current = new GoogleGenerativeAI(
-        process.env.NEXT_PUBLIC_GEMINI_API_KEY
-      );
-
-
       const audioContext = new AudioContext({sampleRate: 16000});
       audioContextRef.current = audioContext;
 
@@ -122,76 +109,81 @@ export const useMacroAgent = () => {
       processorRef.current = processor;
       sourceRef.current.connect(processor);
       processor.connect(audioContext.destination);
+      
+      const { readable, writable } = new TransformStream();
+      const writer = writable.createWriter();
 
-      const callbacks = {
-        onopen: () => {
-          console.log('Connection opened');
-          setStatus(AgentStatus.CONNECTED);
-        },
-        onmessage: async (res: any) => {
-          if (res.response.speech?.audio) {
-            // Need to create a new audio context for playback if the main one is closed or closing
-            const playbackAudioContext = new AudioContext({sampleRate: 24000});
-            const audioData = res.response.speech.audio.content;
-            const decodedData = await playbackAudioContext.decodeAudioData(audioData.buffer);
+      processor.onaudioprocess = (e: AudioProcessingEvent) => {
+        if (status === AgentStatus.CONNECTED || status === AgentStatus.CONNECTING) {
+          const pcm = decode(e.inputBuffer.getChannelData(0));
+          writer.write(pcm.buffer);
+        }
+      };
+
+      const response = await fetch('/api/voice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream' },
+        body: readable,
+        signal: abortControllerRef.current.signal,
+        //@ts-ignore - duplex is a new Fetch API feature
+        duplex: 'half' 
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Server error: ${response.status} ${errorText}`);
+      }
+
+      setStatus(AgentStatus.CONNECTED);
+      console.log("Connection established");
+
+      // Handle the response stream from the server
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error("Could not get response body reader.");
+      }
+
+      const playbackAudioContext = new AudioContext({ sampleRate: 24000 });
+      
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+            console.log("Stream finished.");
+            break;
+        }
+
+        try {
+            const decodedData = await playbackAudioContext.decodeAudioData(value.buffer);
             const source = playbackAudioContext.createBufferSource();
             source.buffer = decodedData;
             source.connect(playbackAudioContext.destination);
             source.start();
-            source.onended = () => {
-              playbackAudioContext.close();
+        } catch(e) {
+            // This might not be audio data, but a text chunk
+            try {
+                const textChunk = new TextDecoder().decode(value);
+                const data = JSON.parse(textChunk);
+                if(data.text) {
+                     setTranscript(prev => [...prev, {actor: 'ai', text: data.text}]);
+                }
+            } catch (textError) {
+                console.warn("Received a chunk that was not audio or valid JSON text.", textError);
             }
-          }
-          if (res.response.text) {
-            setTranscript(prev => [...prev, {actor: 'ai', text: res.response.text}]);
-          }
-        },
-        onclose: () => {
-          console.log('Connection closed');
-          disconnect();
-        },
-        onerror: (err: any) => {
-          console.error('Connection error:', err);
-          setError('A connection error occurred.');
-          setStatus(AgentStatus.ERROR);
-          disconnect();
-        },
-      };
-
-      connectionRef.current = await aiRef.current.live.connect({
-        model: 'gemini-2.5-flash-native-audio-preview-09-2025',
-        history: transcript.map(t => ({
-          role: t.actor === 'ai' ? 'model' : 'user',
-          parts: [{ text: t.text }]
-        })),
-        callbacks,
-        audio: {
-          input: {sampleRate: 16000},
-          output: {
-            sampleRate: 24000,
-            encoding: 'LINEAR16', 
-            voice: 'Zephyr',
-          },
-        },
-      });
-
-      processor.onaudioprocess = (e: AudioProcessingEvent) => {
-        if (connectionRef.current && status === AgentStatus.CONNECTED) {
-          const pcm = decode(e.inputBuffer.getChannelData(0));
-          connectionRef.current.send(pcm);
         }
-      };
-    } catch (e: any)
-    {
-      console.error('Failed to connect:', e);
-      const errorMessage = e.message.includes('permission denied') 
-        ? 'Microphone permission denied. Please enable it in your browser settings.'
-        : `Failed to connect: ${e.message}`;
-      setError(errorMessage);
-      setStatus(AgentStatus.ERROR);
-      await disconnect();
+      }
+
+    } catch (e: any) {
+        console.error('Failed to connect:', e);
+        const errorMessage = e.name === 'AbortError' 
+            ? 'Connection aborted.' 
+            : (e.message.includes('permission denied') 
+                ? 'Microphone permission denied. Please enable it in your browser settings.'
+                : `Failed to connect: ${e.message}`);
+        setError(errorMessage);
+        setStatus(AgentStatus.ERROR);
+        await disconnect();
     }
-  }, [disconnect, status, transcript]);
+  }, [disconnect, status]);
   
   const resetTranscript = () => {
     setTranscript([]);
