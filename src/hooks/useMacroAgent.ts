@@ -32,6 +32,8 @@ export enum AgentStatus {
   ERROR,
 }
 
+const CONNECTION_TIMEOUT = 5000; // 5 seconds
+
 export const useMacroAgent = () => {
   const [status, setStatus] = useState<AgentStatus>(AgentStatus.IDLE);
   const [transcript, setTranscript] = useState<ConversationTurn[]>([]);
@@ -42,12 +44,19 @@ export const useMacroAgent = () => {
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const playbackAudioContextRef = useRef<AudioContext | null>(null);
+  const connectionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
 
   const disconnect = useCallback(async () => {
     if (status === AgentStatus.IDLE || status === AgentStatus.DISCONNECTING) return;
     
     setStatus(AgentStatus.DISCONNECTING);
     console.log('Disconnecting...');
+
+    if (connectionTimeoutRef.current) {
+        clearTimeout(connectionTimeoutRef.current);
+        connectionTimeoutRef.current = null;
+    }
 
     try {
         abortControllerRef.current?.abort();
@@ -89,6 +98,14 @@ export const useMacroAgent = () => {
     setStatus(AgentStatus.CONNECTING);
     setError(null);
     abortControllerRef.current = new AbortController();
+    
+    // Set a timeout to abort the connection attempt
+    connectionTimeoutRef.current = setTimeout(() => {
+        const errorMessage = 'Connection timed out. Please check your network and try again.';
+        console.error(errorMessage);
+        setError(errorMessage);
+        disconnect();
+    }, CONNECTION_TIMEOUT);
 
     try {
       audioContextRef.current = new AudioContext({ sampleRate: 16000 });
@@ -129,6 +146,12 @@ export const useMacroAgent = () => {
         //@ts-ignore - duplex is a valid option in modern browsers
         duplex: 'half' 
       });
+
+      // If fetch succeeds, clear the timeout
+      if (connectionTimeoutRef.current) {
+        clearTimeout(connectionTimeoutRef.current);
+        connectionTimeoutRef.current = null;
+      }
 
       if (!response.ok || !response.body) {
         throw new Error(`Server error: ${response.status} ${await response.text()}`);
@@ -207,6 +230,10 @@ export const useMacroAgent = () => {
         }
       }
     } catch (e: any) {
+        if (connectionTimeoutRef.current) {
+            clearTimeout(connectionTimeoutRef.current);
+            connectionTimeoutRef.current = null;
+        }
         const errorMessage = e.name === 'AbortError' 
             ? 'Connection aborted by user.' 
             : (e.message.includes('permission')
