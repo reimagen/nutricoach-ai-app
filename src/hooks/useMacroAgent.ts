@@ -51,15 +51,12 @@ export const useMacroAgent = () => {
 
     try {
         abortControllerRef.current?.abort();
-        abortControllerRef.current = null;
         
         mediaStreamRef.current?.getTracks().forEach(track => track.stop());
-        mediaStreamRef.current = null;
 
         if (workletNodeRef.current) {
             workletNodeRef.current.port.onmessage = null;
             workletNodeRef.current.disconnect();
-            workletNodeRef.current = null;
         }
 
         if (audioContextRef.current?.state !== 'closed') {
@@ -71,6 +68,9 @@ export const useMacroAgent = () => {
     } catch (e: any) {
         console.error('Error during disconnect:', e);
     } finally {
+        abortControllerRef.current = null;
+        mediaStreamRef.current = null;
+        workletNodeRef.current = null;
         audioContextRef.current = null;
         playbackAudioContextRef.current = null;
         
@@ -155,8 +155,6 @@ export const useMacroAgent = () => {
             const decodedChunk = textDecoder.decode(value, {stream: true});
             accumulatedText += decodedChunk;
             
-            // Look for complete JSON objects in the stream
-            // This handles multiple JSON objects in a single chunk
             let lastIndex = 0;
             let openBraces = 0;
             for (let i = 0; i < accumulatedText.length; i++) {
@@ -173,7 +171,6 @@ export const useMacroAgent = () => {
                             const data = JSON.parse(jsonString);
                              if (data.text) {
                                 setTranscript(prev => {
-                                  // Update the last AI message if it's a continuation, otherwise add a new one
                                   const lastTurn = prev[prev.length - 1];
                                   if (lastTurn && lastTurn.actor === 'ai' && !data.text.startsWith('I ') && !data.text.startsWith('Based ')) {
                                     const updatedTurn = { ...lastTurn, text: lastTurn.text + data.text };
@@ -189,12 +186,10 @@ export const useMacroAgent = () => {
                     }
                 }
             }
-            // Keep the remainder for the next chunk
             if (openBraces === 0) {
                 accumulatedText = '';
             }
             
-
         } catch (e) {
            // Not text, likely audio
         }
@@ -207,7 +202,6 @@ export const useMacroAgent = () => {
                 sourceNode.connect(playbackAudioContextRef.current.destination);
                 sourceNode.start();
             } catch (audioError) {
-                // This can happen if a partial text chunk is mistaken for audio.
                 // console.warn("Could not decode audio chunk, likely partial text.", audioError);
             }
         }
@@ -222,7 +216,6 @@ export const useMacroAgent = () => {
         setError(errorMessage);
         setStatus(AgentStatus.ERROR);
     } finally {
-      // The disconnect should only happen if the loop breaks unexpectedly
       if (status !== AgentStatus.IDLE && status !== AgentStatus.DISCONNECTING) {
         await disconnect();
       }
@@ -243,5 +236,3 @@ export const useMacroAgent = () => {
 
   return {status, transcript, error, connect, disconnect, updateUserTranscript, setTranscript};
 };
-
-    

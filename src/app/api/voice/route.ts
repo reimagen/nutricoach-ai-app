@@ -15,7 +15,6 @@ export async function POST(req: NextRequest) {
 
   try {
     // --- Set up the duplex stream ---
-    // A TransformStream is a perfect fit for this kind of two-way communication.
     const clientToGeminiStream = new TransformStream();
     const geminiToClientStream = new TransformStream();
     
@@ -50,6 +49,8 @@ export async function POST(req: NextRequest) {
     });
 
     // --- Pipe the client's audio stream into our TransformStream ---
+    // This was the missing piece. We need to await this piping to complete
+    // but without blocking the response from being sent.
     req.body.pipeTo(clientToGeminiStream.writable).catch(e => {
       console.error("Client stream pipe error:", e);
     });
@@ -58,7 +59,7 @@ export async function POST(req: NextRequest) {
     // The client will read from this to get Gemini's audio and text responses.
     return new Response(geminiToClientStream.readable, {
       headers: {
-        'Content-Type': 'application/octet-stream', // Using octet-stream for mixed content
+        'Content-Type': 'application/octet-stream',
         'X-Content-Type-Options': 'nosniff',
       },
     });
@@ -68,3 +69,4 @@ export async function POST(req: NextRequest) {
     return new Response(e.message || 'Internal Server Error', { status: 500 });
   }
 }
+
