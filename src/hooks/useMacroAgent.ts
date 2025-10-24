@@ -10,13 +10,8 @@ const workletCode = `
       const input = inputs[0];
       if (input.length > 0) {
         // Post the raw Float32Array data back to the main thread.
-        const pcm16 = new Int16Array(input[0].length);
-        for(let i = 0; i < input[0].length; i++) {
-            // We are using a 16-bit signed integer, so we scale the float value.
-            let s = Math.max(-1, Math.min(1, input[0][i]));
-            pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-        }
-        this.port.postMessage(pcm16.buffer, [pcm16.buffer]);
+        // The underlying ArrayBuffer is transferred to the main thread.
+        this.port.postMessage(input[0].buffer, [input[0].buffer]);
       }
       return true; // Keep the processor alive.
     }
@@ -57,9 +52,16 @@ export const useMacroAgent = () => {
     try {
         abortControllerRef.current?.abort();
         abortControllerRef.current = null;
+        
         mediaStreamRef.current?.getTracks().forEach(track => track.stop());
+        mediaStreamRef.current = null;
 
-        workletNodeRef.current?.disconnect();
+        if (workletNodeRef.current) {
+            workletNodeRef.current.port.onmessage = null;
+            workletNodeRef.current.disconnect();
+            workletNodeRef.current = null;
+        }
+
         if (audioContextRef.current?.state !== 'closed') {
             await audioContextRef.current?.close();
         }
@@ -69,13 +71,11 @@ export const useMacroAgent = () => {
     } catch (e: any) {
         console.error('Error during disconnect:', e);
     } finally {
-        mediaStreamRef.current = null;
-        workletNodeRef.current = null;
         audioContextRef.current = null;
         playbackAudioContextRef.current = null;
         
         setStatus(AgentStatus.IDLE);
-        setTranscript([]);
+        setTranscript([]); // Clear transcript on disconnect
         console.log('Disconnected cleanly.');
     }
   }, [status]);
@@ -89,7 +89,7 @@ export const useMacroAgent = () => {
 
     setStatus(AgentStatus.CONNECTING);
     setError(null);
-    setTranscript([]); // Clear transcript on new connection
+    setTranscript([]); 
     abortControllerRef.current = new AbortController();
 
     try {
@@ -107,16 +107,20 @@ export const useMacroAgent = () => {
 
       const source = audioContextRef.current.createMediaStreamSource(mediaStream);
       source.connect(workletNode);
-      // We don't connect to destination, as we only want to process and send.
 
-      const { readable, writable } = new TransformStream();
+      const { readable, writable } = new TransformStream<Uint8Array>();
       
-      workletNode.port.onmessage = (event: MessageEvent<ArrayBuffer>) => {
+      workletNode.port.onmessage = (event: MessageEvent<Float32Array>) => {
+        const pcm16 = new Int16Array(event.data.length);
+        for (let i = 0; i < event.data.length; i++) {
+            let s = Math.max(-1, Math.min(1, event.data[i]));
+            pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+        }
         const writer = writable.getWriter();
-        writer.write(new Uint8Array(event.data));
+        writer.write(new Uint8Array(pcm16.buffer));
         writer.releaseLock();
       };
-
+      
       const historyQuery = `?history=${encodeURIComponent(JSON.stringify(transcript.map(t => t.text)))}`;
 
       const response = await fetch(`/api/voice${historyQuery}`, {
@@ -131,7 +135,7 @@ export const useMacroAgent = () => {
       if (!response.ok || !response.body) {
         throw new Error(`Server error: ${response.status} ${await response.text()}`);
       }
-
+      
       setStatus(AgentStatus.CONNECTED);
       console.log("Connection established. Streaming...");
 
@@ -153,7 +157,6 @@ export const useMacroAgent = () => {
             const decodedChunk = textDecoder.decode(value, {stream: true});
             accumulatedText += decodedChunk;
             
-            // It's possible to receive multiple JSON objects in one chunk
             let boundary = accumulatedText.indexOf('}{');
             while (boundary !== -1) {
                 const jsonString = accumulatedText.substring(0, boundary + 1);
@@ -171,7 +174,6 @@ export const useMacroAgent = () => {
                 boundary = accumulatedText.indexOf('}{');
             }
 
-            // Try to parse the remaining part
             if (accumulatedText.trim().startsWith('{') && accumulatedText.trim().endsWith('}')) {
                  try {
                     const data = JSON.parse(accumulatedText);
@@ -188,16 +190,15 @@ export const useMacroAgent = () => {
            // Not text, likely audio
         }
 
-        if (!isText && playbackAudioContextRef.current) {
+        if (!isText && playbackAudioContextRef.current && value) {
              try {
-                // The data from Gemini is already PCM, so we can create a buffer
                 const audioBuffer = await playbackAudioContextRef.current.decodeAudioData(value.buffer);
-                const source = playbackAudioContextRef.current.createBufferSource();
-                source.buffer = audioBuffer;
-                source.connect(playbackAudioContextRef.current.destination);
-                source.start();
+                const sourceNode = playbackAudioContextRef.current.createBufferSource();
+                sourceNode.buffer = audioBuffer;
+                sourceNode.connect(playbackAudioContextRef.current.destination);
+                sourceNode.start();
             } catch (audioError) {
-                // If decode fails, it's probably because it was a partial text chunk.
+                // This can happen if a partial text chunk is mistaken for audio.
                 // console.warn("Could not decode audio chunk, likely partial text.", audioError);
             }
         }
@@ -205,13 +206,14 @@ export const useMacroAgent = () => {
     } catch (e: any) {
         const errorMessage = e.name === 'AbortError' 
             ? 'Connection aborted by user.' 
-            : (e.message.includes('permission denied') 
+            : (e.message.includes('permission') // Broader check for permission issues
                 ? 'Microphone permission denied. Please enable it in your browser settings.'
                 : `Connection failed: ${e.message}`);
         console.error('Error in connect function:', e);
         setError(errorMessage);
         setStatus(AgentStatus.ERROR);
     } finally {
+      // The disconnect should only happen if the loop breaks unexpectedly
       if (status !== AgentStatus.IDLE && status !== AgentStatus.DISCONNECTING) {
         await disconnect();
       }
@@ -225,14 +227,12 @@ export const useMacroAgent = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const resetTranscript = () => {
-    setTranscript([]);
-  }
-
   const updateUserTranscript = (text: string) => {
     const newTurn: ConversationTurn = { actor: 'user', text };
     setTranscript(prev => [...prev, newTurn]);
   };
 
-  return {status, transcript, error, connect, disconnect, updateUserTranscript, resetTranscript};
+  return {status, transcript, error, connect, disconnect, updateUserTranscript};
 };
+
+    
