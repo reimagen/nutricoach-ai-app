@@ -18,6 +18,7 @@ export async function POST(req: NextRequest) {
     // A TransformStream is a perfect fit for this kind of two-way communication.
     const { readable: clientToGeminiStream, writable: clientAudioWriter } = new TransformStream();
     const { readable: geminiToClientStream, writable: geminiAudioWriter } = new TransformStream();
+    const geminiTextWriter = geminiAudioWriter.getWriter();
 
     // --- Start the live conversation with Gemini ---
     const historyParam = req.nextUrl.searchParams.get('history');
@@ -33,14 +34,15 @@ export async function POST(req: NextRequest) {
                 // If we get a text chunk, we'll wrap it in a simple JSON object
                 // This makes it easy for the client to distinguish from audio
                 const textPayload = JSON.stringify({ text });
-                geminiAudioWriter.write(new TextEncoder().encode(textPayload));
+                const encodedText = new TextEncoder().encode(textPayload);
+                geminiTextWriter.write(encodedText);
             }
         }
-        geminiAudioWriter.close();
+        geminiTextWriter.close();
     }).catch(e => {
         console.error("Gemini stream error:", e);
         try {
-            geminiAudioWriter.abort(e);
+            geminiTextWriter.abort(e);
         } catch (abortError) {
             console.error("Error aborting Gemini writer:", abortError);
         }
@@ -60,7 +62,7 @@ export async function POST(req: NextRequest) {
     // The client will read from this to get Gemini's audio and text responses.
     return new Response(geminiToClientStream, {
       headers: {
-        'Content-Type': 'application/octet-stream', // Changed to octet-stream for mixed content
+        'Content-Type': 'application/octet-stream', // Using octet-stream for mixed content
       },
     });
 

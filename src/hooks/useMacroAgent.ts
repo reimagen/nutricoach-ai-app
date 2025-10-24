@@ -116,7 +116,7 @@ export const useMacroAgent = () => {
         }
       };
 
-      const historyQuery = `?history=${encodeURIComponent(JSON.stringify(transcript))}`;
+      const historyQuery = `?history=${encodeURIComponent(JSON.stringify(transcript.map(t => t.text)))}`;
 
       const response = await fetch(`/api/voice${historyQuery}`, {
         method: 'POST',
@@ -137,6 +137,9 @@ export const useMacroAgent = () => {
       const reader = response.body.getReader();
       playbackAudioContextRef.current = new AudioContext({ sampleRate: 24000 });
       
+      let accumulatedText = '';
+      const textDecoder = new TextDecoder();
+
       while (true) {
         const { done, value } = await reader.read();
         if (done) {
@@ -145,12 +148,28 @@ export const useMacroAgent = () => {
         }
 
         let isText = false;
+        let textToParse = '';
+
         try {
-            const textChunk = new TextDecoder().decode(value);
-            const data = JSON.parse(textChunk);
-            if(data.text) {
-                 setTranscript(prev => [...prev, {actor: 'ai', text: data.text}]);
-                 isText = true;
+            // Append new chunk to accumulated text
+            accumulatedText += textDecoder.decode(value, {stream: true});
+            
+            // Try to find a complete JSON object
+            const jsonMatch = accumulatedText.match(/\{.*?\}/);
+
+            if (jsonMatch) {
+                const jsonString = jsonMatch[0];
+                try {
+                    const data = JSON.parse(jsonString);
+                    if (data.text) {
+                        setTranscript(prev => [...prev, { actor: 'ai', text: data.text }]);
+                        isText = true;
+                        // Remove the parsed JSON from the accumulator
+                        accumulatedText = accumulatedText.substring(jsonMatch.index! + jsonString.length);
+                    }
+                } catch (e) {
+                  // Incomplete JSON, wait for more data
+                }
             }
         } catch (e) {
             // Not a JSON object, so we treat it as audio data.
@@ -162,11 +181,17 @@ export const useMacroAgent = () => {
                 // We need to construct an AudioBuffer from the raw PCM data.
                 const audioBuffer = playbackAudioContextRef.current.createBuffer(
                   1, // 1 channel (mono)
-                  value.byteLength / 2, // number of frames
-                  24000 // sample rate
+                  value.byteLength / 2, // number of frames (16-bit PCM)
+                  24000 // sample rate from Gemini
                 );
                 
-                const float32Data = new Float32Array(value.buffer);
+                // Assuming the server sends 16-bit PCM, we convert to Float32
+                const int16Data = new Int16Array(value.buffer);
+                const float32Data = new Float32Array(int16Data.length);
+                for (let i = 0; i < int16Data.length; i++) {
+                    float32Data[i] = int16Data[i] / 32768.0;
+                }
+
                 audioBuffer.copyToChannel(float32Data, 0);
 
                 const source = playbackAudioContextRef.current.createBufferSource();
@@ -209,7 +234,6 @@ export const useMacroAgent = () => {
     const newTurn: ConversationTurn = { actor: 'user', text };
     setTranscript(prev => {
       const updatedTranscript = [...prev, newTurn];
-      console.log('Updated Transcript:', updatedTranscript);
       return updatedTranscript;
     });
   };
