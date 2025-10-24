@@ -246,7 +246,7 @@ export default function ConversationalAgent() {
                     }}
                     rows={1}
                     className="max-h-24"
-                    disabled={isLoading || status === AgentStatus.CONNECTED}
+                    disabled={isLoading}
                 />
                 <Button onClick={handleTextInputSend} disabled={isLoading || !textInput.trim()}>
                     <Send className="h-4 w-4" />
@@ -347,3 +347,5 @@ export default function ConversationalAgent() {
     </Card>
   );
 }
+
+    
