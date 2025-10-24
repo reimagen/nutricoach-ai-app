@@ -18,19 +18,33 @@ export interface MacroGoals {
   fat: number;
 }
 
-export interface MealEntry {
-  id?: string;
-  uid: string;
-  date: Date;
-  description: string;
-  source: 'voice' | 'photo' | 'manual';
-  macros: {
-    calories: number;
-    protein: number;
-    carbs: number;
-    fat: number;
-  };
+export interface FoodItem {
+    name: string;
+    macros: {
+        caloriesKcal: number;
+        proteinG: number;
+        carbohydrateG: number;
+        fatG: number;
+    };
 }
+
+export interface MealEntry {
+  id: string;
+  userId: string;
+  createdAt: any;
+  description: string;
+  mealCategory: 'breakfast' | 'lunch' | 'dinner' | 'snack' | 'unknown';
+  items: FoodItem[];
+  macros: {
+    caloriesKcal: number;
+    proteinG: number;
+    carbohydrateG: number;
+    fatG: number;
+  };
+  totalMacros?: any; // For legacy data
+  source: 'voice' | 'photo' | 'manual' | 'conversation';
+}
+
 
 export interface EducationModule {
   day: number;

@@ -10,6 +10,9 @@ import MacroSummary from '@/components/dashboard/MacroSummary';
 import WelcomeDashboard from '@/components/dashboard/WelcomeDashboard';
 import ConversationalAgent from '@/components/logging/ConversationalAgent';
 import { Loader2 } from 'lucide-react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import type { MealEntry } from '@/lib/types';
 
 export default function DashboardPage() {
   const { user } = useAuth();
@@ -19,6 +22,7 @@ export default function DashboardPage() {
     carbs: { current: 0, target: 250 },
     fat: { current: 0, target: 70 },
   });
+  const [meals, setMeals] = useState<MealEntry[]>([]);
   const [hasMeals, setHasMeals] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -45,23 +49,32 @@ export default function DashboardPage() {
         let totalProtein = 0;
         let totalCarbs = 0;
         let totalFat = 0;
+        const mealDocs: MealEntry[] = [];
+        const categoryOrder = ['breakfast', 'lunch', 'dinner', 'snack'];
 
         setHasMeals(!querySnapshot.empty);
 
         querySnapshot.forEach((doc) => {
-          const data = doc.data();
-          if (data.macros) {
-            totalCalories += data.macros.caloriesKcal || 0;
-            totalProtein += data.macros.proteinG || 0;
-            totalCarbs += data.macros.carbohydrateG || 0;
-            totalFat += data.macros.fatG || 0;
-          } else if (data.totalMacros) { // Legacy check
-             totalCalories += data.totalMacros.caloriesKcal || 0;
-            totalProtein += data.totalMacros.proteinG || 0;
-            totalCarbs += data.totalMacros.carbohydrateG || 0;
-            totalFat += data.totalMacros.fatG || 0;
+          const data = doc.data() as MealEntry;
+          mealDocs.push({ ...data, id: doc.id });
+
+          const macros = data.macros || data.totalMacros; // Handle legacy data
+          if (macros) {
+            totalCalories += macros.caloriesKcal || 0;
+            totalProtein += macros.proteinG || 0;
+            totalCarbs += macros.carbohydrateG || 0;
+            totalFat += macros.fatG || 0;
           }
         });
+
+        // Sort meals on the client-side
+        mealDocs.sort((a, b) => {
+          const aIndex = categoryOrder.indexOf(a.mealCategory);
+          const bIndex = categoryOrder.indexOf(b.mealCategory);
+          return aIndex - bIndex;
+        });
+
+        setMeals(mealDocs);
         
         setDailySummary(prev => ({
           ...prev, // Keep target values
@@ -101,6 +114,35 @@ export default function DashboardPage() {
               Here's your macro summary for today.
             </p>
             <MacroSummary data={dailySummary} />
+            <div className="space-y-4">
+              <h2 className="text-2xl font-bold font-headline mt-6">Today's Meals</h2>
+               {meals.map((meal) => (
+                <Card key={meal.id}>
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="capitalize font-headline">{meal.mealCategory}</CardTitle>
+                      <Badge variant="outline">{Math.round(meal.macros.caloriesKcal)} kcal</Badge>
+                    </div>
+                    <CardDescription>{meal.description}</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      {meal.items.map((item, index) => (
+                        <div key={index} className="flex justify-between items-center p-2 bg-muted/50 rounded-lg">
+                          <p className="font-medium text-sm">{item.name}</p>
+                          <div className="grid grid-cols-4 gap-x-3 text-xs text-right text-muted-foreground">
+                            <span>{Math.round(item.macros.caloriesKcal)}kcal</span>
+                            <span>{Math.round(item.macros.proteinG)}g P</span>
+                            <span>{Math.round(item.macros.carbohydrateG)}g C</span>
+                            <span>{Math.round(item.macros.fatG)}g F</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
           </div>
         ) : (
            <WelcomeDashboard />
