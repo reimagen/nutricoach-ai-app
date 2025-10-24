@@ -10,12 +10,13 @@ const workletCode = `
       const input = inputs[0];
       if (input.length > 0) {
         // Post the raw Float32Array data back to the main thread.
-        // Convert to Int16 before posting
         const pcm16 = new Int16Array(input[0].length);
         for(let i = 0; i < input[0].length; i++) {
-            pcm16[i] = Math.floor(input[0][i] * 32768);
+            // We are using a 16-bit signed integer, so we scale the float value.
+            let s = Math.max(-1, Math.min(1, input[0][i]));
+            pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
         }
-        this.port.postMessage(pcm16, [pcm16.buffer]);
+        this.port.postMessage(pcm16.buffer, [pcm16.buffer]);
       }
       return true; // Keep the processor alive.
     }
@@ -87,11 +88,11 @@ export const useMacroAgent = () => {
 
     setStatus(AgentStatus.CONNECTING);
     setError(null);
+    setTranscript([]); // Clear transcript on new connection
     abortControllerRef.current = new AbortController();
 
     try {
-      const audioContext = new AudioContext({ sampleRate: 16000 });
-      audioContextRef.current = audioContext;
+      audioContextRef.current = new AudioContext({ sampleRate: 16000 });
       
       const mediaStream = await navigator.mediaDevices.getUserMedia({
         audio: { channelCount: 1, sampleRate: 16000, echoCancellation: true },
@@ -99,21 +100,20 @@ export const useMacroAgent = () => {
       mediaStreamRef.current = mediaStream;
 
       const workletURL = URL.createObjectURL(new Blob([workletCode], { type: 'application/javascript' }));
-      await audioContext.audioWorklet.addModule(workletURL);
-      const workletNode = new AudioWorkletNode(audioContext, 'audio-recorder');
+      await audioContextRef.current.audioWorklet.addModule(workletURL);
+      const workletNode = new AudioWorkletNode(audioContextRef.current, 'audio-recorder');
       workletNodeRef.current = workletNode;
 
-      const source = audioContext.createMediaStreamSource(mediaStream);
+      const source = audioContextRef.current.createMediaStreamSource(mediaStream);
       source.connect(workletNode);
-      // Not connecting to destination, as we only want to process and send.
+      // We don't connect to destination, as we only want to process and send.
 
       const { readable, writable } = new TransformStream();
-      const writer = writable.getWriter();
       
-      workletNode.port.onmessage = (event: MessageEvent<Int16Array>) => {
-        if (writer) {
-            writer.write(event.data.buffer);
-        }
+      workletNode.port.onmessage = (event: MessageEvent<ArrayBuffer>) => {
+        const writer = writable.getWriter();
+        writer.write(new Uint8Array(event.data));
+        writer.releaseLock();
       };
 
       const historyQuery = `?history=${encodeURIComponent(JSON.stringify(transcript.map(t => t.text)))}`;
@@ -123,7 +123,7 @@ export const useMacroAgent = () => {
         headers: { 'Content-Type': 'application/octet-stream' },
         body: readable,
         signal: abortControllerRef.current.signal,
-        //@ts-ignore
+        //@ts-ignore - duplex is a valid option in modern browsers
         duplex: 'half' 
       });
 
@@ -148,58 +148,56 @@ export const useMacroAgent = () => {
         }
 
         let isText = false;
-        let textToParse = '';
-
         try {
-            // Append new chunk to accumulated text
-            accumulatedText += textDecoder.decode(value, {stream: true});
+            const decodedChunk = textDecoder.decode(value, {stream: true});
+            accumulatedText += decodedChunk;
             
-            // Try to find a complete JSON object
-            const jsonMatch = accumulatedText.match(/\{.*?\}/);
-
-            if (jsonMatch) {
-                const jsonString = jsonMatch[0];
+            // It's possible to receive multiple JSON objects in one chunk
+            let boundary = accumulatedText.indexOf('}{');
+            while (boundary !== -1) {
+                const jsonString = accumulatedText.substring(0, boundary + 1);
+                accumulatedText = accumulatedText.substring(boundary + 1);
+                
                 try {
                     const data = JSON.parse(jsonString);
                     if (data.text) {
                         setTranscript(prev => [...prev, { actor: 'ai', text: data.text }]);
                         isText = true;
-                        // Remove the parsed JSON from the accumulator
-                        accumulatedText = accumulatedText.substring(jsonMatch.index! + jsonString.length);
+                    }
+                } catch(e) {
+                  // Ignore parsing errors for partial objects
+                }
+                boundary = accumulatedText.indexOf('}{');
+            }
+
+            // Try to parse the remaining part
+            if (accumulatedText.trim().startsWith('{') && accumulatedText.trim().endsWith('}')) {
+                 try {
+                    const data = JSON.parse(accumulatedText);
+                    if (data.text) {
+                        setTranscript(prev => [...prev, { actor: 'ai', text: data.text }]);
+                        isText = true;
+                        accumulatedText = '';
                     }
                 } catch (e) {
-                  // Incomplete JSON, wait for more data
+                   // Incomplete JSON, wait for more data
                 }
             }
         } catch (e) {
-            // Not a JSON object, so we treat it as audio data.
+           // Not text, likely audio
         }
 
         if (!isText && playbackAudioContextRef.current) {
-            try {
-                // The server should be sending raw PCM audio, not a file format.
-                // We need to construct an AudioBuffer from the raw PCM data.
-                const audioBuffer = playbackAudioContextRef.current.createBuffer(
-                  1, // 1 channel (mono)
-                  value.byteLength / 2, // number of frames (16-bit PCM)
-                  24000 // sample rate from Gemini
-                );
-                
-                // Assuming the server sends 16-bit PCM, we convert to Float32
-                const int16Data = new Int16Array(value.buffer);
-                const float32Data = new Float32Array(int16Data.length);
-                for (let i = 0; i < int16Data.length; i++) {
-                    float32Data[i] = int16Data[i] / 32768.0;
-                }
-
-                audioBuffer.copyToChannel(float32Data, 0);
-
+             try {
+                // The data from Gemini is already PCM, so we can create a buffer
+                const audioBuffer = await playbackAudioContextRef.current.decodeAudioData(value.buffer);
                 const source = playbackAudioContextRef.current.createBufferSource();
                 source.buffer = audioBuffer;
                 source.connect(playbackAudioContextRef.current.destination);
                 source.start();
             } catch (audioError) {
-                console.warn("Could not decode or play audio chunk.", audioError);
+                // If decode fails, it's probably because it was a partial text chunk.
+                // console.warn("Could not decode audio chunk, likely partial text.", audioError);
             }
         }
       }
@@ -212,9 +210,8 @@ export const useMacroAgent = () => {
         console.error('Error in connect function:', e);
         setError(errorMessage);
         setStatus(AgentStatus.ERROR);
-        await disconnect();
     } finally {
-      if (status === AgentStatus.CONNECTED) {
+      if (status !== AgentStatus.IDLE) {
         await disconnect();
       }
     }
@@ -232,10 +229,7 @@ export const useMacroAgent = () => {
 
   const updateUserTranscript = (text: string) => {
     const newTurn: ConversationTurn = { actor: 'user', text };
-    setTranscript(prev => {
-      const updatedTranscript = [...prev, newTurn];
-      return updatedTranscript;
-    });
+    setTranscript(prev => [...prev, newTurn]);
   };
 
   return {status, transcript, error, connect, disconnect, updateUserTranscript, resetTranscript};
