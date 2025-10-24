@@ -6,8 +6,9 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { useToast } from '@/hooks/use-toast';
 import { extractMealInfo } from '@/ai/flows/extract-meal-info';
 import { photoMealLogging } from '@/ai/flows/photo-meal-logging';
+import { conversationalMealLogging, type ConversationalMealLoggingInput } from '@/ai/flows/conversational-meal-logging';
 import { MealInfo } from '@/ai/shared-types';
-import { Bot, Mic, User, Save, X, Loader2, Power, Paperclip, Send, BrainCircuit } from 'lucide-react';
+import { Bot, Mic, User, Save, X, Loader2, Power, Paperclip, Send } from 'lucide-react';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/useAuth';
@@ -47,19 +48,56 @@ export default function ConversationalAgent() {
     }
   };
 
-  const handleTextInputSend = () => {
-    if (!textInput.trim()) return;
-    updateUserTranscript(textInput);
+  const processAndRespond = async (newTranscript: ConversationTurn[]) => {
+      const fullConversation = newTranscript.map(t => `${t.actor}: ${t.text}`).join('\n');
+      const mealInfo = await extractMealInfo({ conversationHistory: fullConversation });
+      
+      // If we have a complete meal, present it for confirmation
+      if (mealInfo && mealInfo.items.length > 0 && mealInfo.totalMacros.caloriesKcal > 0) {
+          setMealData(mealInfo);
+          setTranscript(prev => [...prev, { actor: 'ai', text: "I've drafted this meal from our conversation. Does this look right? You can make more changes or save it." }]);
+      } else {
+          // Otherwise, continue the conversation
+          const lastUserTurn = newTranscript.filter(t => t.actor === 'user').pop();
+          if(lastUserTurn) {
+            const aiResponse = await conversationalMealLogging({
+              userQuery: lastUserTurn.text,
+              conversationHistory: newTranscript.slice(0, -1).map(t => `${t.actor}: ${t.text}`)
+            });
+            setTranscript(prev => [...prev, { actor: 'ai', text: aiResponse }]);
+          }
+      }
+  }
+
+
+  const handleTextInputSend = async () => {
+    if (!textInput.trim() || !user) return;
+    
+    const newText = textInput;
     setTextInput('');
+
+    const newTranscript: ConversationTurn[] = [...transcript, { actor: 'user', text: newText }];
+    setTranscript(newTranscript);
+    setIsProcessing(true);
+
+    try {
+      await processAndRespond(newTranscript);
+    } catch (e) {
+      console.error("Processing failed:", e);
+      toast({ variant: 'destructive', title: 'AI Error', description: 'There was an issue processing your request.' });
+    } finally {
+      setIsProcessing(false);
+    }
   };
-  
+
   const handlePhotoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
     setIsProcessing(true);
-    updateUserTranscript(`(Sent an image: ${file.name})`);
-
+    const newTranscript: ConversationTurn[] = [...transcript, { actor: 'user', text: `(Uploaded an image: ${file.name})` }];
+    setTranscript(newTranscript);
+    
     try {
         const reader = new FileReader();
         reader.onloadend = async () => {
@@ -72,7 +110,7 @@ export default function ConversationalAgent() {
             }
             
             setMealData(newMealData);
-            setTranscript(prev => [...prev, { actor: 'ai', text: `Based on the photo, I've logged: ${newMealData.mealDescription}. You can make changes by typing or speaking, or save it as is.` }]);
+            setTranscript(prev => [...prev, { actor: 'ai', text: `Based on the photo, I've logged: ${newMealData.mealDescription}. You can make changes by typing or speaking, or save it.` }]);
         };
         reader.readAsDataURL(file);
     } catch (e) {
@@ -83,37 +121,6 @@ export default function ConversationalAgent() {
         if (fileInputRef.current) {
             fileInputRef.current.value = "";
         }
-    }
-  };
-
-  const processConversation = async () => {
-    const conversationText = transcript.map(t => `${t.actor}: ${t.text}`).join('\n');
-    
-    if (!conversationText || !user) {
-      toast({ variant: 'destructive', title: 'Processing Failed', description: 'There is no conversation to process.' });
-      return;
-    }
-    setIsProcessing(true);
-    setMealData(null); // Clear previous meal data before processing
-
-    try {
-      const extractedMealData = await extractMealInfo({
-        conversationHistory: conversationText,
-      });
-
-      if (!extractedMealData || extractedMealData.items.length === 0) {
-        setTranscript(prev => [...prev, { actor: 'ai', text: "I didn't find enough information to log a meal from our conversation. Please describe what you ate, like 'I had two eggs and a coffee for breakfast'." }]);
-        return;
-      }
-      
-      setMealData(extractedMealData);
-      setTranscript(prev => [...prev, { actor: 'ai', text: `I've analyzed our conversation and drafted this meal. Feel free to make more changes or save it.` }]);
-
-    } catch (error) {
-      console.error("Failed to extract meal info:", error);
-      toast({ variant: 'destructive', title: 'Extraction Failed', description: 'I couldn\'t figure out the meal from our conversation.' });
-    } finally {
-      setIsProcessing(false);
     }
   };
 
@@ -200,7 +207,7 @@ export default function ConversationalAgent() {
           </div>
         )}
         
-        {isLoading && transcript.length === 0 && !mealData &&(
+        {(isLoading && transcript.length === 0 && !mealData) &&(
             <div className="flex flex-col items-center justify-center h-full text-center">
             <Loader2 className="w-16 h-16 text-muted-foreground/50 animate-spin" />
             <p className="mt-4 text-muted-foreground">Processing...</p>
@@ -268,6 +275,16 @@ export default function ConversationalAgent() {
                   <span>{Math.round(mealData.totalMacros.fatG)}g F</span>
                 </div>
               </div>
+               <div className="flex w-full justify-end gap-2 items-center pt-2">
+                <Button variant="ghost" onClick={reset} disabled={isLoading}>
+                    <X className="mr-2 h-4 w-4" />
+                    Cancel
+                </Button>
+                <Button onClick={handleConfirmSave} disabled={isLoading || !mealData}>
+                    {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                    Save Meal
+                </Button>
+            </div>
             </div>
           </div>
         )}
@@ -275,57 +292,34 @@ export default function ConversationalAgent() {
         <div ref={conversationEndRef} />
       </CardContent>
 
-      <CardFooter className="pt-4 border-t flex flex-col gap-4">
-            <div className="flex w-full items-start space-x-2">
-            <Textarea
-                placeholder="Type what you ate or click the mic..."
-                value={textInput}
-                onChange={(e) => setTextInput(e.target.value)}
-                onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        handleTextInputSend();
-                    }
-                }}
-                rows={1}
-                className="max-h-24"
-                disabled={isLoading}
-            />
-            <Button onClick={handleTextInputSend} disabled={isLoading || !textInput.trim()}>
-                <Send className="h-4 w-4" />
-            </Button>
-            <input type="file" accept="image/*" onChange={handlePhotoUpload} className="hidden" ref={fileInputRef} disabled={isLoading} />
-            <Button variant="outline" size="icon" onClick={() => fileInputRef.current?.click()} disabled={isLoading}>
-                <Paperclip className="h-4 w-4" />
-            </Button>
-                <Button size="icon" variant={buttonState.variant} onClick={handleToggleConnection} disabled={buttonState.disabled}>
-                {buttonState.icon}
-                </Button>
-        </div>
-            {status === AgentStatus.CONNECTED && (
-            <div className="flex items-center text-sm text-green-500 w-full">
-                <span className="relative flex h-2 w-2 rounded-full bg-green-500 mr-2"></span>
-                Live Conversation Active
-            </div>
-            )}
-         <div className="flex w-full justify-end gap-2 items-center mt-2">
-            <p className="text-xs text-muted-foreground mr-auto">Use "Process" to analyze the chat, then "Save".</p>
-            <Button variant="ghost" onClick={reset} disabled={isLoading}>
-                <X className="mr-2 h-4 w-4" />
-                Reset
-            </Button>
-            <Button onClick={processConversation} disabled={isLoading || transcript.length === 0}>
-                <BrainCircuit className="mr-2 h-4 w-4" />
-                Process
-            </Button>
-            <Button onClick={handleConfirmSave} disabled={isLoading || !mealData}>
-                {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                Save Meal
+      <CardFooter className="pt-4 border-t">
+        <div className="flex w-full items-start space-x-2">
+        <Textarea
+            placeholder="Type what you ate or click the mic..."
+            value={textInput}
+            onChange={(e) => setTextInput(e.target.value)}
+            onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleTextInputSend();
+                }
+            }}
+            rows={1}
+            className="max-h-24"
+            disabled={isLoading || status === AgentStatus.CONNECTED}
+        />
+        <Button onClick={handleTextInputSend} disabled={isLoading || !textInput.trim()}>
+            <Send className="h-4 w-4" />
+        </Button>
+        <input type="file" accept="image/*" onChange={handlePhotoUpload} className="hidden" ref={fileInputRef} disabled={isLoading} />
+        <Button variant="outline" size="icon" onClick={() => fileInputRef.current?.click()} disabled={isLoading}>
+            <Paperclip className="h-4 w-4" />
+        </Button>
+            <Button size="icon" variant={buttonState.variant} onClick={handleToggleConnection} disabled={buttonState.disabled}>
+            {buttonState.icon}
             </Button>
         </div>
       </CardFooter>
     </Card>
   );
 }
-
-    
