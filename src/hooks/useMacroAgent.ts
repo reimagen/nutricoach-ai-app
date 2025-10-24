@@ -89,7 +89,7 @@ export const useMacroAgent = () => {
 
     try {
       if (!process.env.NEXT_PUBLIC_GEMINI_API_KEY) {
-        throw new Error('Missing GEMINI_API_KEY environment variable.');
+        throw new Error('Missing NEXT_PUBLIC_GEMINI_API_KEY environment variable. Please add it to your .env.local file.');
       }
       aiRef.current = new GoogleGenerativeAI(
         process.env.NEXT_PUBLIC_GEMINI_API_KEY
@@ -120,7 +120,7 @@ export const useMacroAgent = () => {
         onopen: () => {
           console.log('Connection opened');
           setStatus(AgentStatus.CONNECTED);
-          setTranscript([]); // Reset transcript on new connection
+          // Do not reset transcript here to allow text/photo before voice
         },
         onmessage: async (res: any) => {
           if (res.response.speech?.audio) {
@@ -156,13 +156,16 @@ export const useMacroAgent = () => {
       connectionRef.current = await aiRef.current.live.connect({
         model: 'gemini-2.5-flash-native-audio-preview-09-2025',
         // Optional, but recommended.
-        history: [],
+        history: transcript.map(t => ({
+          role: t.actor === 'ai' ? 'model' : 'user',
+          parts: [{ text: t.text }]
+        })),
         callbacks,
         audio: {
           input: {sampleRate: 16000},
           output: {
             sampleRate: 24000,
-            encoding: 'LINEAR16', // Use 'LINEAR16' instead of 'MP3'
+            encoding: 'LINEAR16', 
             voice: 'Zephyr',
           },
         },
@@ -174,7 +177,8 @@ export const useMacroAgent = () => {
           connectionRef.current.send(pcm);
         }
       };
-    } catch (e: any) {
+    } catch (e: any)
+    {
       console.error('Failed to connect:', e);
       setError(
         e.message.includes('permission denied')
@@ -184,11 +188,15 @@ export const useMacroAgent = () => {
       setStatus(AgentStatus.ERROR);
       await disconnect();
     }
-  }, [disconnect, status]);
+  }, [disconnect, status, transcript]);
+  
+  const resetTranscript = () => {
+    setTranscript([]);
+  }
 
   const updateUserTranscript = (text: string) => {
     setTranscript(prev => [...prev, { actor: 'user', text }]);
   }
 
-  return {status, transcript, error, connect, disconnect, updateUserTranscript};
+  return {status, transcript, error, connect, disconnect, updateUserTranscript, resetTranscript};
 };
