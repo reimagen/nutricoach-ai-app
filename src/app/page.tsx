@@ -8,7 +8,6 @@ import { useAuth } from '@/hooks/useAuth';
 import AppLayout from '@/components/layout/AppLayout';
 import MacroSummary from '@/components/dashboard/MacroSummary';
 import WelcomeDashboard from '@/components/dashboard/WelcomeDashboard';
-import ConversationalAgent from '@/components/logging/ConversationalAgent';
 import { Loader2 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -123,10 +122,7 @@ export default function DashboardPage() {
         )}
         
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
-            <div className="lg:col-span-2">
-                <ConversationalAgent />
-            </div>
-            <div className="lg:col-span-1">
+            <div className="lg:col-span-3">
                  {loading ? (
                     <Card><CardContent className="h-full flex items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></CardContent></Card>
                  ) : meals.length > 0 ? (
@@ -167,7 +163,7 @@ export default function DashboardPage() {
                         </CardHeader>
                         <CardContent className="flex flex-col items-center justify-center text-center h-2/3">
                             <p className="text-muted-foreground">You haven't logged any meals yet today.</p>
-                            <p className="text-sm text-muted-foreground">Use the agent on the left to start.</p>
+                            <p className="text-sm text-muted-foreground">Use the agent in the footer to start.</p>
                         </CardContent>
                     </Card>
                  )}
@@ -177,5 +173,3 @@ export default function DashboardPage() {
     </AppLayout>
   );
 }
-
-    

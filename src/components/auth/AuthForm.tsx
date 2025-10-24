@@ -59,7 +59,6 @@ export default function AuthForm() {
          await setDoc(userDocRef, {
             email: result.user.email,
             displayName: result.user.displayName,
-            photoURL: result.user.photoURL,
             createdAt: serverTimestamp(),
         });
       }

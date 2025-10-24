@@ -17,7 +17,7 @@ export default {
     },
     extend: {
       fontFamily: {
-        body: ['Alegreya', 'serif'],
+        body: ['TikTok Sans', 'sans-serif'],
         headline: ['Belleza', 'sans-serif'],
         code: ['Source Code Pro', 'monospace'],
       },
