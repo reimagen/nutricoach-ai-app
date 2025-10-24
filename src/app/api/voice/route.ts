@@ -22,9 +22,9 @@ export async function POST(req: NextRequest) {
     const { readable, writable } = new TransformStream();
     const writer = writable.createWriter();
 
-    // Use a simpler callback structure
-    const callbacks = {
-        onmessage: async (res: any) => {
+    // This function will handle piping the server response to our client
+    const pipeResponseToClient = async (responseStream: AsyncGenerator<{ response: any; }>) => {
+        for await (const res of responseStream) {
             if (res.response.speech?.audio?.content) {
                 writer.write(res.response.speech.audio.content);
             }
@@ -32,50 +32,32 @@ export async function POST(req: NextRequest) {
                 const textPayload = JSON.stringify({ text: res.response.text });
                 writer.write(new TextEncoder().encode(textPayload));
             }
-        },
-        onclose: () => {
-            console.log('Gemini API connection closed.');
-            writer.close();
-        },
-        onerror: (err: any) => {
-            console.error('Gemini API connection error:', err);
-            writer.abort(err);
-        },
+        }
     };
 
     try {
         const historyParam = req.nextUrl.searchParams.get('history');
         const history = historyParam ? JSON.parse(historyParam) : [];
 
-        const connection = await ai.live.connect({
-            model: 'gemini-2.5-flash-native-audio-preview-09-2025',
+        const connection = ai.startChat({
             history: getSanitizedHistory(history),
-            callbacks,
-            audio: {
-                input: { sampleRate: 16000 },
-                output: {
-                    sampleRate: 24000,
-                    encoding: 'LINEAR16',
-                    voice: 'Zephyr',
-                },
-            },
         });
 
-        // Pipe the incoming request stream to the Gemini connection
-        const reader = inputAudioStream.getReader();
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) {
-                console.log('Client stream finished.');
-                await connection.close();
-                break;
-            }
-            connection.send(value);
-        }
+        const responseStream = await connection.sendStreamingContentStream(inputAudioStream as any);
+        
+        pipeResponseToClient(responseStream).finally(() => {
+            writer.close();
+        });
 
     } catch (e: any) {
         console.error("Error setting up Gemini connection:", e);
-        return new Response(`Error setting up stream: ${e.message}`, { status: 500 });
+        try {
+           await writer.abort(e);
+        } catch(writeErr) {
+            // writer might already be closed
+        }
+        // We can't return a normal response here because the headers might have already been sent.
+        // The client will see the aborted stream.
     }
 
 
