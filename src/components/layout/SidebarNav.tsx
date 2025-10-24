@@ -1,3 +1,4 @@
+
 'use client';
 
 import Link from 'next/link';
@@ -10,7 +11,6 @@ import {
 } from '@/components/ui/tooltip';
 import {
   Home,
-  FilePlus2,
   BookOpen,
   User,
   Settings,
@@ -20,7 +20,6 @@ import { cn } from '@/lib/utils';
 
 const navItems = [
   { href: '/', label: 'Dashboard', icon: Home },
-  { href: '/log-meal', label: 'Log Meal', icon: FilePlus2 },
   { href: '/education', label: 'Education', icon: BookOpen },
   { href: '/profile', label: 'Profile', icon: User },
 ];

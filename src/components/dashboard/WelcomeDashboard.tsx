@@ -10,19 +10,13 @@ export default function WelcomeDashboard() {
         Welcome to NutriCoach AI!
       </h2>
       <p className="text-muted-foreground mb-6 max-w-md">
-        It looks like you're new here. Let's get started on your health journey. What would you like to do first?
+        It looks like you're new here. Log your first meal below to get started on your health journey.
       </p>
       <div className="flex gap-4">
-        <Link href="/log-meal">
-          <Button size="lg">
-            <LogIn className="mr-2 h-4 w-4" />
-            Log Your First Meal
-          </Button>
-        </Link>
         <Link href="/profile">
           <Button size="lg" variant="outline">
             <UserPlus className="mr-2 h-4 w-4" />
-            Start with Personalization
+            Or, Start with Personalization
           </Button>
         </Link>
       </div>
