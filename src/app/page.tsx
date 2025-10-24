@@ -2,7 +2,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, orderBy } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/useAuth';
 import AppLayout from '@/components/layout/AppLayout';
@@ -35,7 +35,8 @@ export default function DashboardPage() {
     const q = query(
       mealsCollection,
       where('userId', '==', user.uid),
-      where('createdAt', '>=', today)
+      where('createdAt', '>=', today),
+      orderBy('createdAt', 'desc')
     );
 
     const unsubscribe = onSnapshot(
