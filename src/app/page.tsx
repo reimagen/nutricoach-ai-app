@@ -35,8 +35,7 @@ export default function DashboardPage() {
     const q = query(
       mealsCollection,
       where('userId', '==', user.uid),
-      where('createdAt', '>=', today),
-      orderBy('createdAt', 'desc')
+      where('createdAt', '>=', today)
     );
 
     const unsubscribe = onSnapshot(
