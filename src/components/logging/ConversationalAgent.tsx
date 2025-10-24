@@ -37,7 +37,7 @@ export default function ConversationalAgent() {
 
   useEffect(() => {
     conversationEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [transcript]);
+  }, [transcript, mealData]);
 
   const handleToggleConnection = () => {
     if (status === AgentStatus.CONNECTED || status === AgentStatus.CONNECTING) {
@@ -94,6 +94,7 @@ export default function ConversationalAgent() {
       return;
     }
     setIsProcessing(true);
+    setMealData(null); // Clear previous meal data before processing
 
     try {
       const extractedMealData = await extractMealInfo({
@@ -160,7 +161,7 @@ export default function ConversationalAgent() {
     switch (status) {
       case AgentStatus.IDLE:
       case AgentStatus.ERROR:
-        return { text: 'Start Conversation', icon: <Mic className="mr-2 h-4 w-4" />, variant: 'outline' as const, disabled: isProcessing };
+        return { text: 'Start Conversation', icon: <Mic className="h-4 w-4" />, variant: 'outline' as const, disabled: isProcessing };
       case AgentStatus.CONNECTING:
         return { text: 'Connecting...', icon: <Loader2 className="mr-2 h-4 w-4 animate-spin" />, variant: 'outline' as const, disabled: true };
       case AgentStatus.CONNECTED:
@@ -183,159 +184,146 @@ export default function ConversationalAgent() {
           Start a conversation, type, or upload a photo. The AI will build your meal log as you go.
         </CardDescription>
       </CardHeader>
+      
+      <CardContent className="flex-grow space-y-4 text-left max-h-full overflow-y-auto pr-4">
+        {error && (
+          <Alert variant="destructive">
+            <AlertTitle>Error</AlertTitle>
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 flex-grow min-h-0">
-        {/* Left Side: Conversation */}
-        <div className="flex flex-col border-r">
-          <CardContent className="flex-grow space-y-4 text-left max-h-full overflow-y-auto pr-4">
-            {error && (
-              <Alert variant="destructive">
-                <AlertTitle>Error</AlertTitle>
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            )}
-
-            {transcript.length === 0 && !isLoading && (
-              <div className="flex flex-col items-center justify-center h-full text-center">
-                <Bot className="w-16 h-16 text-muted-foreground/50" />
-                <p className="mt-4 text-muted-foreground">Log your meal to get started.</p>
-              </div>
-            )}
-            
-            {isLoading && transcript.length === 0 && (
-               <div className="flex flex-col items-center justify-center h-full text-center">
-                <Loader2 className="w-16 h-16 text-muted-foreground/50 animate-spin" />
-                <p className="mt-4 text-muted-foreground">Processing...</p>
-              </div>
-            )}
-
-            {transcript.map((entry, index) => (
-              <div key={index} className={`flex items-start gap-3 ${entry.actor === 'user' ? 'justify-end' : ''}`}>
-                {entry.actor === 'ai' && (
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-primary-foreground shrink-0">
-                    <Bot className="h-5 w-5" />
-                  </div>
-                )}
-                <div className={`rounded-lg p-3 max-w-[80%] shadow-sm ${entry.actor === 'ai' ? 'bg-muted' : 'bg-accent text-accent-foreground'}`}>
-                  <p>{entry.text}</p>
-                </div>
-                {entry.actor === 'user' && (
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary text-secondary-foreground shrink-0">
-                    <User className="h-5 w-5" />
-                  </div>
-                )}
-              </div>
-            ))}
-            <div ref={conversationEndRef} />
-          </CardContent>
-          <CardFooter className="pt-4 border-t flex flex-col gap-4">
-             <div className="flex w-full items-start space-x-2">
-                <Textarea
-                    placeholder="Type what you ate or click the mic..."
-                    value={textInput}
-                    onChange={(e) => setTextInput(e.target.value)}
-                    onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey) {
-                            e.preventDefault();
-                            handleTextInputSend();
-                        }
-                    }}
-                    rows={1}
-                    className="max-h-24"
-                    disabled={isLoading}
-                />
-                <Button onClick={handleTextInputSend} disabled={isLoading || !textInput.trim()}>
-                    <Send className="h-4 w-4" />
-                </Button>
-                <input type="file" accept="image/*" onChange={handlePhotoUpload} className="hidden" ref={fileInputRef} disabled={isLoading} />
-                <Button variant="outline" size="icon" onClick={() => fileInputRef.current?.click()} disabled={isLoading}>
-                    <Paperclip className="h-4 w-4" />
-                </Button>
-                 <Button size="icon" variant={buttonState.variant} onClick={handleToggleConnection} disabled={buttonState.disabled}>
-                    {buttonState.icon}
-                 </Button>
+        {transcript.length === 0 && !isLoading && !mealData && (
+          <div className="flex flex-col items-center justify-center h-full text-center">
+            <Bot className="w-16 h-16 text-muted-foreground/50" />
+            <p className="mt-4 text-muted-foreground">Log your meal to get started.</p>
+          </div>
+        )}
+        
+        {isLoading && transcript.length === 0 && !mealData &&(
+            <div className="flex flex-col items-center justify-center h-full text-center">
+            <Loader2 className="w-16 h-16 text-muted-foreground/50 animate-spin" />
+            <p className="mt-4 text-muted-foreground">Processing...</p>
             </div>
-             {status === AgentStatus.CONNECTED && (
-                <div className="flex items-center text-sm text-green-500 w-full">
-                  <span className="relative flex h-2 w-2 rounded-full bg-green-500 mr-2"></span>
-                  Live Conversation Active
-                </div>
-              )}
-          </CardFooter>
-        </div>
+        )}
 
-        {/* Right Side: Meal Details */}
-        <div className="flex flex-col">
-          <CardContent className="flex-grow space-y-4 text-left max-h-full overflow-y-auto px-4 pt-6">
+        {transcript.map((entry, index) => (
+          <div key={index} className={`flex items-start gap-3 ${entry.actor === 'user' ? 'justify-end' : ''}`}>
+            {entry.actor === 'ai' && (
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-primary-foreground shrink-0">
+                <Bot className="h-5 w-5" />
+              </div>
+            )}
+            <div className={`rounded-lg p-3 max-w-[80%] shadow-sm ${entry.actor === 'ai' ? 'bg-muted' : 'bg-accent text-accent-foreground'}`}>
+              <p>{entry.text}</p>
+            </div>
+            {entry.actor === 'user' && (
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary text-secondary-foreground shrink-0">
+                <User className="h-5 w-5" />
+              </div>
+            )}
+          </div>
+        ))}
+        
+        {mealData && (
+          <div className="p-4 my-4 space-y-4 border rounded-lg bg-card shadow-sm">
               <h3 className="font-headline text-lg">Meal Details</h3>
-              {mealData ? (
-                 <div className="space-y-4">
-                  <Select 
-                    value={mealData.mealCategory === 'unknown' ? undefined : mealData.mealCategory}
-                    onValueChange={(value: 'breakfast' | 'lunch' | 'dinner' | 'snack') => {
-                      setMealData(prev => prev ? { ...prev, mealCategory: value } : null);
-                    }}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select Meal Category" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="breakfast">Breakfast</SelectItem>
-                      <SelectItem value="lunch">Lunch</SelectItem>
-                      <SelectItem value="dinner">Dinner</SelectItem>
-                      <SelectItem value="snack">Snack</SelectItem>
-                    </SelectContent>
-                  </Select>
+              <div className="space-y-4">
+              <Select 
+                value={mealData.mealCategory === 'unknown' ? undefined : mealData.mealCategory}
+                onValueChange={(value: 'breakfast' | 'lunch' | 'dinner' | 'snack') => {
+                  setMealData(prev => prev ? { ...prev, mealCategory: value } : null);
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select Meal Category" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="breakfast">Breakfast</SelectItem>
+                  <SelectItem value="lunch">Lunch</SelectItem>
+                  <SelectItem value="dinner">Dinner</SelectItem>
+                  <SelectItem value="snack">Snack</SelectItem>
+                </SelectContent>
+              </Select>
 
-                  <div className="space-y-2">
-                    {mealData.items.map((item, index) => (
-                      <div key={index} className="flex justify-between items-center p-2 bg-muted/50 rounded-lg">
-                        <p className="font-medium text-sm flex-1">{item.name}</p>
-                        <div className="grid grid-cols-4 gap-x-3 text-xs text-right text-muted-foreground w-2/3">
-                          <span>{Math.round(item.macros.caloriesKcal)}kcal</span>
-                          <span>{Math.round(item.macros.proteinG)}g P</span>
-                          <span>{Math.round(item.macros.carbohydrateG)}g C</span>
-                          <span>{Math.round(item.macros.fatG)}g F</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="flex justify-between items-center p-2 bg-muted rounded-lg font-bold">
-                    <p>Total</p>
-                    <div className="grid grid-cols-4 gap-x-3 text-sm text-right w-2/3">
-                      <span>{Math.round(mealData.totalMacros.caloriesKcal)}kcal</span>
-                      <span>{Math.round(mealData.totalMacros.proteinG)}g P</span>
-                      <span>{Math.round(mealData.totalMacros.carbohydrateG)}g C</span>
-                      <span>{Math.round(mealData.totalMacros.fatG)}g F</span>
+              <div className="space-y-2">
+                {mealData.items.map((item, index) => (
+                  <div key={index} className="flex justify-between items-center p-2 bg-muted/50 rounded-lg">
+                    <p className="font-medium text-sm flex-1">{item.name}</p>
+                    <div className="grid grid-cols-4 gap-x-3 text-xs text-right text-muted-foreground w-2/3">
+                      <span>{Math.round(item.macros.caloriesKcal)}kcal</span>
+                      <span>{Math.round(item.macros.proteinG)}g P</span>
+                      <span>{Math.round(item.macros.carbohydrateG)}g C</span>
+                      <span>{Math.round(item.macros.fatG)}g F</span>
                     </div>
                   </div>
+                ))}
+              </div>
+              <div className="flex justify-between items-center p-2 bg-muted rounded-lg font-bold">
+                <p>Total</p>
+                <div className="grid grid-cols-4 gap-x-3 text-sm text-right w-2/3">
+                  <span>{Math.round(mealData.totalMacros.caloriesKcal)}kcal</span>
+                  <span>{Math.round(mealData.totalMacros.proteinG)}g P</span>
+                  <span>{Math.round(mealData.totalMacros.carbohydrateG)}g C</span>
+                  <span>{Math.round(mealData.totalMacros.fatG)}g F</span>
                 </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground p-8 border-2 border-dashed rounded-lg">
-                   <BrainCircuit className="w-16 h-16 mb-4" />
-                  <p>Your meal details will appear here as you describe them.</p>
-                </div>
-              )}
-          </CardContent>
-          <CardFooter className="pt-4 border-t flex flex-col items-end gap-2">
-            <div className="flex w-full justify-end gap-2">
-                <Button variant="ghost" onClick={reset} disabled={isLoading}>
-                    <X className="mr-2 h-4 w-4" />
-                    Reset
-                </Button>
-                <Button onClick={processConversation} disabled={isLoading || transcript.length === 0}>
-                    <BrainCircuit className="mr-2 h-4 w-4" />
-                    Process Conversation
-                </Button>
-                <Button onClick={handleConfirmSave} disabled={isLoading || !mealData}>
-                    {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                    Save Meal
-                </Button>
+              </div>
             </div>
-            <p className="text-xs text-muted-foreground text-right w-full">Use "Process Conversation" to analyze text/voice, then "Save Meal".</p>
-          </CardFooter>
+          </div>
+        )}
+
+        <div ref={conversationEndRef} />
+      </CardContent>
+
+      <CardFooter className="pt-4 border-t flex flex-col gap-4">
+            <div className="flex w-full items-start space-x-2">
+            <Textarea
+                placeholder="Type what you ate or click the mic..."
+                value={textInput}
+                onChange={(e) => setTextInput(e.target.value)}
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleTextInputSend();
+                    }
+                }}
+                rows={1}
+                className="max-h-24"
+                disabled={isLoading}
+            />
+            <Button onClick={handleTextInputSend} disabled={isLoading || !textInput.trim()}>
+                <Send className="h-4 w-4" />
+            </Button>
+            <input type="file" accept="image/*" onChange={handlePhotoUpload} className="hidden" ref={fileInputRef} disabled={isLoading} />
+            <Button variant="outline" size="icon" onClick={() => fileInputRef.current?.click()} disabled={isLoading}>
+                <Paperclip className="h-4 w-4" />
+            </Button>
+                <Button size="icon" variant={buttonState.variant} onClick={handleToggleConnection} disabled={buttonState.disabled}>
+                {buttonState.icon}
+                </Button>
         </div>
-      </div>
+            {status === AgentStatus.CONNECTED && (
+            <div className="flex items-center text-sm text-green-500 w-full">
+                <span className="relative flex h-2 w-2 rounded-full bg-green-500 mr-2"></span>
+                Live Conversation Active
+            </div>
+            )}
+         <div className="flex w-full justify-end gap-2 items-center mt-2">
+            <p className="text-xs text-muted-foreground mr-auto">Use "Process" to analyze the chat, then "Save".</p>
+            <Button variant="ghost" onClick={reset} disabled={isLoading}>
+                <X className="mr-2 h-4 w-4" />
+                Reset
+            </Button>
+            <Button onClick={processConversation} disabled={isLoading || transcript.length === 0}>
+                <BrainCircuit className="mr-2 h-4 w-4" />
+                Process
+            </Button>
+            <Button onClick={handleConfirmSave} disabled={isLoading || !mealData}>
+                {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                Save Meal
+            </Button>
+        </div>
+      </CardFooter>
     </Card>
   );
 }
