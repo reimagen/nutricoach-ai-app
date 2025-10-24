@@ -1,3 +1,4 @@
+
 'use client';
 
 import {useState, useRef, useCallback} from 'react';
@@ -96,12 +97,6 @@ export const useMacroAgent = () => {
     setError(null);
 
     try {
-      // This is insecure and should be handled on the server.
-      // For this prototype, we'll proceed, but in a real app,
-      // you would have a server endpoint that manages the API key.
-      if (!process.env.NEXT_PUBLIC_GEMINI_API_KEY) {
-        throw new Error('This app requires a Gemini API key. Please add NEXT_PUBLIC_GEMINI_API_KEY to your .env.local file.');
-      }
       aiRef.current = new GoogleGenerativeAI(
         process.env.NEXT_PUBLIC_GEMINI_API_KEY
       );
