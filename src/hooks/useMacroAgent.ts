@@ -75,7 +75,6 @@ export const useMacroAgent = () => {
         playbackAudioContextRef.current = null;
         
         setStatus(AgentStatus.IDLE);
-        setTranscript([]); // Clear transcript on disconnect
         console.log('Disconnected cleanly.');
     }
   }, [status]);
@@ -89,7 +88,6 @@ export const useMacroAgent = () => {
 
     setStatus(AgentStatus.CONNECTING);
     setError(null);
-    setTranscript([]); 
     abortControllerRef.current = new AbortController();
 
     try {
@@ -157,35 +155,46 @@ export const useMacroAgent = () => {
             const decodedChunk = textDecoder.decode(value, {stream: true});
             accumulatedText += decodedChunk;
             
-            let boundary = accumulatedText.indexOf('}{');
-            while (boundary !== -1) {
-                const jsonString = accumulatedText.substring(0, boundary + 1);
-                accumulatedText = accumulatedText.substring(boundary + 1);
-                
-                try {
-                    const data = JSON.parse(jsonString);
-                    if (data.text) {
-                        setTranscript(prev => [...prev, { actor: 'ai', text: data.text }]);
-                        isText = true;
+            // Look for complete JSON objects in the stream
+            // This handles multiple JSON objects in a single chunk
+            let lastIndex = 0;
+            let openBraces = 0;
+            for (let i = 0; i < accumulatedText.length; i++) {
+                if (accumulatedText[i] === '{') {
+                    if (openBraces === 0) {
+                        lastIndex = i;
                     }
-                } catch(e) {
-                  // Ignore parsing errors for partial objects
+                    openBraces++;
+                } else if (accumulatedText[i] === '}') {
+                    openBraces--;
+                    if (openBraces === 0) {
+                        const jsonString = accumulatedText.substring(lastIndex, i + 1);
+                        try {
+                            const data = JSON.parse(jsonString);
+                             if (data.text) {
+                                setTranscript(prev => {
+                                  // Update the last AI message if it's a continuation, otherwise add a new one
+                                  const lastTurn = prev[prev.length - 1];
+                                  if (lastTurn && lastTurn.actor === 'ai' && !data.text.startsWith('I ') && !data.text.startsWith('Based ')) {
+                                    const updatedTurn = { ...lastTurn, text: lastTurn.text + data.text };
+                                    return [...prev.slice(0, -1), updatedTurn];
+                                  }
+                                  return [...prev, { actor: 'ai', text: data.text }];
+                                });
+                                isText = true;
+                            }
+                        } catch (e) {
+                            // Not a valid JSON object, might be partial, ignore
+                        }
+                    }
                 }
-                boundary = accumulatedText.indexOf('}{');
             }
+            // Keep the remainder for the next chunk
+            if (openBraces === 0) {
+                accumulatedText = '';
+            }
+            
 
-            if (accumulatedText.trim().startsWith('{') && accumulatedText.trim().endsWith('}')) {
-                 try {
-                    const data = JSON.parse(accumulatedText);
-                    if (data.text) {
-                        setTranscript(prev => [...prev, { actor: 'ai', text: data.text }]);
-                        isText = true;
-                        accumulatedText = '';
-                    }
-                } catch (e) {
-                   // Incomplete JSON, wait for more data
-                }
-            }
         } catch (e) {
            // Not text, likely audio
         }
@@ -206,7 +215,7 @@ export const useMacroAgent = () => {
     } catch (e: any) {
         const errorMessage = e.name === 'AbortError' 
             ? 'Connection aborted by user.' 
-            : (e.message.includes('permission') // Broader check for permission issues
+            : (e.message.includes('permission')
                 ? 'Microphone permission denied. Please enable it in your browser settings.'
                 : `Connection failed: ${e.message}`);
         console.error('Error in connect function:', e);
@@ -232,7 +241,7 @@ export const useMacroAgent = () => {
     setTranscript(prev => [...prev, newTurn]);
   };
 
-  return {status, transcript, error, connect, disconnect, updateUserTranscript};
+  return {status, transcript, error, connect, disconnect, updateUserTranscript, setTranscript};
 };
 
     

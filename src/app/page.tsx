@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -71,6 +72,8 @@ export default function DashboardPage() {
         mealDocs.sort((a, b) => {
           const aIndex = categoryOrder.indexOf(a.mealCategory);
           const bIndex = categoryOrder.indexOf(b.mealCategory);
+          if (aIndex === -1) return 1; // Put unknown at the end
+          if (bIndex === -1) return -1;
           return aIndex - bIndex;
         });
 
@@ -97,7 +100,7 @@ export default function DashboardPage() {
 
   return (
     <AppLayout>
-      <div className="flex-1 space-y-4 p-4 sm:p-8 pt-6">
+      <div className="flex-1 space-y-4 pt-6">
         <div className="flex items-center justify-between space-y-2">
           <h1 className="text-3xl font-bold tracking-tight font-headline">
             Welcome Back!
@@ -114,44 +117,65 @@ export default function DashboardPage() {
               Here's your macro summary for today.
             </p>
             <MacroSummary data={dailySummary} />
-            <div className="space-y-4">
-              <h2 className="text-2xl font-bold font-headline mt-6">Today's Meals</h2>
-               {meals.map((meal) => (
-                <Card key={meal.id}>
-                  <CardHeader>
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="capitalize font-headline">{meal.mealCategory}</CardTitle>
-                      <Badge variant="outline">{Math.round(meal.macros.caloriesKcal)} kcal</Badge>
-                    </div>
-                    <CardDescription>{meal.description}</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-2">
-                      {meal.items.map((item, index) => (
-                        <div key={index} className="flex justify-between items-center p-2 bg-muted/50 rounded-lg">
-                          <p className="font-medium text-sm">{item.name}</p>
-                          <div className="grid grid-cols-4 gap-x-3 text-xs text-right text-muted-foreground">
-                            <span>{Math.round(item.macros.caloriesKcal)}kcal</span>
-                            <span>{Math.round(item.macros.proteinG)}g P</span>
-                            <span>{Math.round(item.macros.carbohydrateG)}g C</span>
-                            <span>{Math.round(item.macros.fatG)}g F</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
           </div>
         ) : (
            <WelcomeDashboard />
         )}
         
-        <div className="mt-6">
-            <ConversationalAgent />
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
+            <div className="lg:col-span-2">
+                <ConversationalAgent />
+            </div>
+            <div className="lg:col-span-1">
+                 {loading ? (
+                    <Card><CardContent className="h-full flex items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></CardContent></Card>
+                 ) : meals.length > 0 ? (
+                    <Card>
+                        <CardHeader>
+                            <CardTitle className="font-headline">Today's Meals</CardTitle>
+                            <CardDescription>A log of your meals for today.</CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                            {meals.map((meal) => (
+                                <div key={meal.id} className="p-3 bg-muted/50 rounded-lg">
+                                    <div className="flex items-center justify-between mb-2">
+                                        <h4 className="font-semibold capitalize">{meal.mealCategory}</h4>
+                                        <Badge variant="outline">{Math.round(meal.macros.caloriesKcal)} kcal</Badge>
+                                    </div>
+                                    <p className="text-sm text-muted-foreground mb-3">{meal.description}</p>
+                                    <div className="space-y-2">
+                                    {meal.items.map((item, index) => (
+                                        <div key={index} className="flex justify-between items-center text-xs">
+                                        <p className="font-medium text-sm flex-1 truncate pr-2">{item.name}</p>
+                                        <div className="grid grid-cols-4 gap-x-2 text-right text-muted-foreground w-1/2">
+                                            <span>{Math.round(item.macros.caloriesKcal)}kcal</span>
+                                            <span>{Math.round(item.macros.proteinG)}p</span>
+                                            <span>{Math.round(item.macros.carbohydrateG)}c</span>
+                                            <span>{Math.round(item.macros.fatG)}f</span>
+                                        </div>
+                                        </div>
+                                    ))}
+                                    </div>
+                                </div>
+                            ))}
+                        </CardContent>
+                    </Card>
+                 ) : (
+                    <Card className="h-full">
+                        <CardHeader>
+                            <CardTitle className="font-headline">Today's Meals</CardTitle>
+                        </CardHeader>
+                        <CardContent className="flex flex-col items-center justify-center text-center h-2/3">
+                            <p className="text-muted-foreground">You haven't logged any meals yet today.</p>
+                            <p className="text-sm text-muted-foreground">Use the agent on the left to start.</p>
+                        </CardContent>
+                    </Card>
+                 )}
+            </div>
         </div>
       </div>
     </AppLayout>
   );
 }
+
+    

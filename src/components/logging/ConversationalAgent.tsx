@@ -7,7 +7,7 @@ import { useToast } from '@/hooks/use-toast';
 import { extractMealInfo } from '@/ai/flows/extract-meal-info';
 import { photoMealLogging } from '@/ai/flows/photo-meal-logging';
 import { MealInfo } from '@/ai/shared-types';
-import { Bot, Mic, User, Save, X, Loader2, Power, Paperclip, Send } from 'lucide-react';
+import { Bot, Mic, User, Save, X, Loader2, Power, Paperclip, Send, BrainCircuit } from 'lucide-react';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/useAuth';
@@ -15,22 +15,22 @@ import { Button } from '@/components/ui/button';
 import { useMacroAgent, AgentStatus, ConversationTurn } from '@/hooks/useMacroAgent';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { Textarea } from '@/components/ui/textarea';
-import Image from 'next/image';
-
-enum View {
-  CONVERSATION,
-  CONFIRMING
-}
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 export default function ConversationalAgent() {
   const { user } = useAuth();
-  const [view, setView] = useState<View>(View.CONVERSATION);
   const [isSaving, setIsSaving] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [finalMealData, setFinalMealData] = useState<MealInfo | null>(null);
+  const [mealData, setMealData] = useState<MealInfo | null>(null);
   const [textInput, setTextInput] = useState('');
   const { toast } = useToast();
-  const { status, transcript, error, connect, disconnect, updateUserTranscript } = useMacroAgent();
+  const { status, transcript, error, connect, disconnect, updateUserTranscript, setTranscript } = useMacroAgent();
   const conversationEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -64,20 +64,15 @@ export default function ConversationalAgent() {
         const reader = new FileReader();
         reader.onloadend = async () => {
             const dataUri = reader.result as string;
-            const mealData = await photoMealLogging({ photoDataUri: dataUri });
+            const newMealData = await photoMealLogging({ photoDataUri: dataUri });
 
-            if (mealData.items.length === 0) {
-              toast({
-                variant: 'destructive',
-                title: 'Photo Unclear',
-                description: "I couldn't identify any food items in that photo. Please try another one or describe the meal.",
-              });
-              setIsProcessing(false);
+            if (newMealData.items.length === 0) {
+              setTranscript(prev => [...prev, { actor: 'ai', text: "I couldn't quite identify any food in that photo. Could you try another picture or describe the meal for me?" }]);
               return;
             }
-
-            setFinalMealData(mealData);
-            setView(View.CONFIRMING);
+            
+            setMealData(newMealData);
+            setTranscript(prev => [...prev, { actor: 'ai', text: `Based on the photo, I've logged: ${newMealData.mealDescription}. You can make changes by typing or speaking, or save it as is.` }]);
         };
         reader.readAsDataURL(file);
     } catch (e) {
@@ -91,32 +86,27 @@ export default function ConversationalAgent() {
     }
   };
 
-  const processAndSaveMeal = async () => {
+  const processConversation = async () => {
     const conversationText = transcript.map(t => `${t.actor}: ${t.text}`).join('\n');
     
     if (!conversationText || !user) {
-      toast({ variant: 'destructive', title: 'Save Failed', description: 'There is no conversation to save.' });
+      toast({ variant: 'destructive', title: 'Processing Failed', description: 'There is no conversation to process.' });
       return;
     }
     setIsProcessing(true);
 
     try {
-      const mealData = await extractMealInfo({
+      const extractedMealData = await extractMealInfo({
         conversationHistory: conversationText,
       });
 
-      if (!mealData || !mealData.mealCategory || mealData.mealCategory === 'unknown' || mealData.items.length === 0) {
-        toast({
-          variant: 'destructive',
-          title: 'Not Enough Info',
-          description: "I don't have enough information to log a meal yet. Please describe what you ate, and for which meal (breakfast, lunch, dinner, or snack).",
-        });
-        setIsProcessing(false);
+      if (!extractedMealData || extractedMealData.items.length === 0) {
+        setTranscript(prev => [...prev, { actor: 'ai', text: "I didn't find enough information to log a meal from our conversation. Please describe what you ate, like 'I had two eggs and a coffee for breakfast'." }]);
         return;
       }
       
-      setFinalMealData(mealData);
-      setView(View.CONFIRMING);
+      setMealData(extractedMealData);
+      setTranscript(prev => [...prev, { actor: 'ai', text: `I've analyzed our conversation and drafted this meal. Feel free to make more changes or save it.` }]);
 
     } catch (error) {
       console.error("Failed to extract meal info:", error);
@@ -127,20 +117,28 @@ export default function ConversationalAgent() {
   };
 
   const handleConfirmSave = async () => {
-    if (!finalMealData || !user) return;
+    if (!mealData || !user) {
+      toast({ variant: 'destructive', title: 'Save Failed', description: "There's no meal data to save." });
+      return;
+    };
+     if (!mealData.mealCategory || mealData.mealCategory === 'unknown') {
+      toast({ variant: 'destructive', title: 'Category Missing', description: "Please select a meal category before saving." });
+      return;
+    }
+
     setIsSaving(true);
     try {
       await addDoc(collection(db, 'meals'), {
         userId: user.uid,
-        description: finalMealData.mealDescription,
-        mealCategory: finalMealData.mealCategory,
-        items: finalMealData.items,
-        macros: finalMealData.totalMacros,
+        description: mealData.mealDescription,
+        mealCategory: mealData.mealCategory,
+        items: mealData.items,
+        macros: mealData.totalMacros,
         source: 'conversation',
         createdAt: serverTimestamp(),
       });
-      toast({ title: 'Meal Saved!', description: `Your ${finalMealData.mealCategory} has been logged.` });
-      resetConversation();
+      toast({ title: 'Meal Saved!', description: `Your ${mealData.mealCategory} has been logged.` });
+      reset();
     } catch (error) {
        console.error("Failed to save meal:", error);
       toast({ variant: 'destructive', title: 'Save Failed', description: 'Could not save your meal to the database.' });
@@ -149,13 +147,13 @@ export default function ConversationalAgent() {
     }
   };
 
-
-  const resetConversation = () => {
+  const reset = () => {
     disconnect();
+    setTranscript([]);
     setTextInput('');
-    setView(View.CONVERSATION);
-    setFinalMealData(null);
+    setMealData(null);
     setIsSaving(false);
+    setIsProcessing(false);
   };
   
   const getButtonState = () => {
@@ -178,18 +176,17 @@ export default function ConversationalAgent() {
   const isLoading = isProcessing || isSaving || status === AgentStatus.CONNECTING || status === AgentStatus.DISCONNECTING;
 
   return (
-    <Card className="flex flex-col h-[70vh]">
+    <Card className="flex flex-col h-[80vh]">
       <CardHeader>
         <CardTitle>Log Your Meal</CardTitle>
         <CardDescription>
-            {view === View.CONFIRMING
-              ? "Please review the meal details below."
-              : "Describe your meal by typing, speaking, or uploading a photo."}
+          Start a conversation, type, or upload a photo. The AI will build your meal log as you go.
         </CardDescription>
       </CardHeader>
 
-      {view === View.CONVERSATION ? (
-        <>
+      <div className="grid grid-cols-1 md:grid-cols-2 flex-grow min-h-0">
+        {/* Left Side: Conversation */}
+        <div className="flex flex-col border-r">
           <CardContent className="flex-grow space-y-4 text-left max-h-full overflow-y-auto pr-4">
             {error && (
               <Alert variant="destructive">
@@ -231,11 +228,10 @@ export default function ConversationalAgent() {
             ))}
             <div ref={conversationEndRef} />
           </CardContent>
-
-          <CardFooter className="pt-4 border-t flex-col gap-4">
-            <div className="flex w-full items-start space-x-2">
+          <CardFooter className="pt-4 border-t flex flex-col gap-4">
+             <div className="flex w-full items-start space-x-2">
                 <Textarea
-                    placeholder="Type what you ate or click the mic to speak..."
+                    placeholder="Type what you ate or click the mic..."
                     value={textInput}
                     onChange={(e) => setTextInput(e.target.value)}
                     onKeyDown={(e) => {
@@ -251,67 +247,51 @@ export default function ConversationalAgent() {
                 <Button onClick={handleTextInputSend} disabled={isLoading || !textInput.trim()}>
                     <Send className="h-4 w-4" />
                 </Button>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handlePhotoUpload}
-                  className="hidden"
-                  ref={fileInputRef}
-                  disabled={isLoading}
-                />
+                <input type="file" accept="image/*" onChange={handlePhotoUpload} className="hidden" ref={fileInputRef} disabled={isLoading} />
                 <Button variant="outline" size="icon" onClick={() => fileInputRef.current?.click()} disabled={isLoading}>
                     <Paperclip className="h-4 w-4" />
                 </Button>
-                <Button
-                  size="icon"
-                  variant={buttonState.variant}
-                  onClick={handleToggleConnection}
-                  disabled={buttonState.disabled}
-                >
-                  {buttonState.icon}
-                </Button>
+                 <Button size="icon" variant={buttonState.variant} onClick={handleToggleConnection} disabled={buttonState.disabled}>
+                    {buttonState.icon}
+                 </Button>
             </div>
-            <div className="flex w-full items-center justify-between">
-                {status === AgentStatus.CONNECTED && (
-                    <div className="flex items-center text-sm text-green-500">
-                      <span className="relative flex h-2 w-2 rounded-full bg-green-500 mr-2"></span>
-                      Live Conversation Active
-                    </div>
-                )}
-                <Button
-                    onClick={processAndSaveMeal}
-                    disabled={transcript.length === 0 || isLoading}
-                    variant="default"
-                    size="sm"
-                    className="ml-auto"
-                >
-                    {isProcessing ? (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                        <Save className="mr-2 h-4 w-4" />
-                    )}
-                    Log Described Meal
-                </Button>
-            </div>
+             {status === AgentStatus.CONNECTED && (
+                <div className="flex items-center text-sm text-green-500 w-full">
+                  <span className="relative flex h-2 w-2 rounded-full bg-green-500 mr-2"></span>
+                  Live Conversation Active
+                </div>
+              )}
           </CardFooter>
-        </>
-      ) : (
-        <>
-          <CardContent>
-            {finalMealData && (
-              <Card className="text-left mt-4 border-accent">
-                <CardHeader>
-                  <CardTitle>Confirm Your Meal</CardTitle>
-                  <CardDescription>
-                    Ready to log this as {finalMealData.mealCategory === 'unknown' ? 'a meal' : finalMealData.mealCategory}. Is this correct?
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
+        </div>
+
+        {/* Right Side: Meal Details */}
+        <div className="flex flex-col">
+          <CardContent className="flex-grow space-y-4 text-left max-h-full overflow-y-auto px-4 pt-6">
+              <h3 className="font-headline text-lg">Meal Details</h3>
+              {mealData ? (
+                 <div className="space-y-4">
+                  <Select 
+                    value={mealData.mealCategory === 'unknown' ? undefined : mealData.mealCategory}
+                    onValueChange={(value: 'breakfast' | 'lunch' | 'dinner' | 'snack') => {
+                      setMealData(prev => prev ? { ...prev, mealCategory: value } : null);
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select Meal Category" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="breakfast">Breakfast</SelectItem>
+                      <SelectItem value="lunch">Lunch</SelectItem>
+                      <SelectItem value="dinner">Dinner</SelectItem>
+                      <SelectItem value="snack">Snack</SelectItem>
+                    </SelectContent>
+                  </Select>
+
                   <div className="space-y-2">
-                    {finalMealData.items.map((item, index) => (
+                    {mealData.items.map((item, index) => (
                       <div key={index} className="flex justify-between items-center p-2 bg-muted/50 rounded-lg">
-                        <p className="font-medium">{item.name}</p>
-                        <div className="grid grid-cols-4 gap-x-2 text-xs text-right">
+                        <p className="font-medium text-sm flex-1">{item.name}</p>
+                        <div className="grid grid-cols-4 gap-x-3 text-xs text-right text-muted-foreground w-2/3">
                           <span>{Math.round(item.macros.caloriesKcal)}kcal</span>
                           <span>{Math.round(item.macros.proteinG)}g P</span>
                           <span>{Math.round(item.macros.carbohydrateG)}g C</span>
@@ -322,28 +302,40 @@ export default function ConversationalAgent() {
                   </div>
                   <div className="flex justify-between items-center p-2 bg-muted rounded-lg font-bold">
                     <p>Total</p>
-                    <div className="grid grid-cols-4 gap-x-2 text-sm text-right">
-                      <span>{Math.round(finalMealData.totalMacros.caloriesKcal)}kcal</span>
-                      <span>{Math.round(finalMealData.totalMacros.proteinG)}g P</span>
-                      <span>{Math.round(finalMealData.totalMacros.carbohydrateG)}g C</span>
-                      <span>{Math.round(finalMealData.totalMacros.fatG)}g F</span>
+                    <div className="grid grid-cols-4 gap-x-3 text-sm text-right w-2/3">
+                      <span>{Math.round(mealData.totalMacros.caloriesKcal)}kcal</span>
+                      <span>{Math.round(mealData.totalMacros.proteinG)}g P</span>
+                      <span>{Math.round(mealData.totalMacros.carbohydrateG)}g C</span>
+                      <span>{Math.round(mealData.totalMacros.fatG)}g F</span>
                     </div>
                   </div>
-                </CardContent>
-              </Card>
-            )}
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground p-8 border-2 border-dashed rounded-lg">
+                   <BrainCircuit className="w-16 h-16 mb-4" />
+                  <p>Your meal details will appear here as you describe them.</p>
+                </div>
+              )}
           </CardContent>
-          <CardFooter className="flex justify-end gap-2 pt-4 border-t">
-              <Button variant="outline" onClick={() => setView(View.CONVERSATION)}>
-                <X className="mr-2 h-4 w-4" /> Go Back
-              </Button>
-              <Button onClick={handleConfirmSave} disabled={isSaving}>
-                {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                <Save className="mr-2 h-4 w-4" /> Confirm & Save
-              </Button>
-            </CardFooter>
-        </>
-      )}
+          <CardFooter className="pt-4 border-t flex flex-col items-end gap-2">
+            <div className="flex w-full justify-end gap-2">
+                <Button variant="ghost" onClick={reset} disabled={isLoading}>
+                    <X className="mr-2 h-4 w-4" />
+                    Reset
+                </Button>
+                <Button onClick={processConversation} disabled={isLoading || transcript.length === 0}>
+                    <BrainCircuit className="mr-2 h-4 w-4" />
+                    Process Conversation
+                </Button>
+                <Button onClick={handleConfirmSave} disabled={isLoading || !mealData}>
+                    {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                    Save Meal
+                </Button>
+            </div>
+            <p className="text-xs text-muted-foreground text-right w-full">Use "Process Conversation" to analyze text/voice, then "Save Meal".</p>
+          </CardFooter>
+        </div>
+      </div>
     </Card>
   );
 }
