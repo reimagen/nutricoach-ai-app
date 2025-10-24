@@ -8,11 +8,7 @@ import { useAuth } from '@/hooks/useAuth';
 import AppLayout from '@/components/layout/AppLayout';
 import MacroSummary from '@/components/dashboard/MacroSummary';
 import WelcomeDashboard from '@/components/dashboard/WelcomeDashboard';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import PhotoLogging from '@/components/logging/PhotoLogging';
-import VoiceLogging from '@/components/logging/VoiceLogging';
 import ConversationalAgent from '@/components/logging/ConversationalAgent';
-import { Mic, Camera, MessageCircle } from 'lucide-react';
 import { Loader2 } from 'lucide-react';
 
 export default function DashboardPage() {
@@ -94,48 +90,24 @@ export default function DashboardPage() {
             Welcome Back!
           </h1>
         </div>
-        <p className="text-muted-foreground">
-          Log your meal for today using one of the methods below.
-        </p>
-
+        
         {loading ? (
            <div className="flex justify-center items-center h-48">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
           </div>
         ) : hasMeals ? (
           <div className="space-y-4">
+            <p className="text-muted-foreground">
+              Here's your macro summary for today.
+            </p>
             <MacroSummary data={dailySummary} />
           </div>
         ) : (
-          <p className="text-sm text-muted-foreground">No meals logged yet today. Let's get started!</p>
+           <WelcomeDashboard />
         )}
         
         <div className="mt-6">
-            <Tabs defaultValue="conversation" className="w-full">
-            <TabsList className="grid w-full grid-cols-3">
-                <TabsTrigger value="conversation">
-                <MessageCircle className="mr-2 h-4 w-4" />
-                Conversation
-                </TabsTrigger>
-                <TabsTrigger value="voice">
-                <Mic className="mr-2 h-4 w-4" />
-                Text / Voice
-                </TabsTrigger>
-                <TabsTrigger value="photo">
-                <Camera className="mr-2 h-4 w-4" />
-                Photo
-                </TabsTrigger>
-            </TabsList>
-            <TabsContent value="conversation">
-                <ConversationalAgent />
-            </TabsContent>
-            <TabsContent value="voice">
-                <VoiceLogging />
-            </TabsContent>
-            <TabsContent value="photo">
-                <PhotoLogging />
-            </TabsContent>
-            </Tabs>
+            <ConversationalAgent />
         </div>
       </div>
     </AppLayout>

@@ -1,3 +1,4 @@
+
 'use server';
 
 /**
@@ -5,11 +6,12 @@
  *
  * - photoMealLogging - A function that handles the photo meal logging process.
  * - PhotoMealLoggingInput - The input type for the photoMealLogging function.
- * - PhotoMealLoggingOutput - The return type for the photoMealLogging function.
+ * - MealInfo - The return type for the function.
  */
 
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
+import { MealInfo, MealInfoSchema } from '@/ai/shared-types';
 
 const PhotoMealLoggingInputSchema = z.object({
   photoDataUri: z
@@ -20,18 +22,7 @@ const PhotoMealLoggingInputSchema = z.object({
 });
 export type PhotoMealLoggingInput = z.infer<typeof PhotoMealLoggingInputSchema>;
 
-const PhotoMealLoggingOutputSchema = z.object({
-  foodItems: z
-    .array(z.string())
-    .describe('A list of food items identified in the photo.'),
-  macroEstimates: z.object({
-    calories: z.number().describe('Estimated calories in the meal.'),
-    protein: z.number().describe('Estimated protein in grams.'),
-    carbs: z.number().describe('Estimated carbohydrates in grams.'),
-    fat: z.number().describe('Estimated fat in grams.'),
-  }).describe('Estimated macro values for the meal.'),
-});
-export type PhotoMealLoggingOutput = z.infer<typeof PhotoMealLoggingOutputSchema>;
+export type PhotoMealLoggingOutput = z.infer<typeof MealInfoSchema>;
 
 export async function photoMealLogging(input: PhotoMealLoggingInput): Promise<PhotoMealLoggingOutput> {
   return photoMealLoggingFlow(input);
@@ -40,20 +31,29 @@ export async function photoMealLogging(input: PhotoMealLoggingInput): Promise<Ph
 const prompt = ai.definePrompt({
   name: 'photoMealLoggingPrompt',
   input: {schema: PhotoMealLoggingInputSchema},
-  output: {schema: PhotoMealLoggingOutputSchema},
-  prompt: `You are an AI assistant that analyzes images of meals and estimates their nutritional content.
+  output: {schema: MealInfoSchema},
+  prompt: `You are an expert nutritionist AI that analyzes images of meals. Your task is to analyze the provided photo and return a detailed nutritional breakdown.
 
-  Analyze the photo and identify the food items present.  Then, estimate the macro content of the meal.
+**Strict Rules:**
+1.  **Analyze the Photo**: Carefully examine the meal in the photo provided.
+2.  **Itemize Foods**: Break down the meal into individual food items. For each item, provide a description (e.g., "2 large fried eggs", "half an avocado").
+3.  **Estimate Macros**: For each item, estimate its macronutrients (calories, protein, carbohydrates, fat).
+4.  **Calculate Totals**: Sum the macros from all items to get the meal's total.
+5.  **Create a Summary**: Provide a brief summary of the meal in the 'mealDescription'.
+6.  **Meal Category**: Set the 'mealCategory' to 'unknown'. The user will clarify this later if needed.
+7.  **If Unclear**: If the image is not clear or does not contain food, return an empty 'items' array and set 'mealCategory' to 'unknown'.
 
-  Photo: {{media url=photoDataUri}}
-  `,
+Photo: {{media url=photoDataUri}}
+
+Produce a JSON object that strictly follows the required schema.
+`,
 });
 
 const photoMealLoggingFlow = ai.defineFlow(
   {
     name: 'photoMealLoggingFlow',
     inputSchema: PhotoMealLoggingInputSchema,
-    outputSchema: PhotoMealLoggingOutputSchema,
+    outputSchema: MealInfoSchema,
   },
   async input => {
     const {output} = await prompt(input);

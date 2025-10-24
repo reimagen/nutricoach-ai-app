@@ -1,16 +1,21 @@
+
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { extractMealInfo, MealInfo } from '@/ai/flows/extract-meal-info';
-import { Bot, Mic, User, Save, X, Loader2, Power } from 'lucide-react';
+import { extractMealInfo } from '@/ai/flows/extract-meal-info';
+import { photoMealLogging } from '@/ai/flows/photo-meal-logging';
+import { MealInfo } from '@/ai/shared-types';
+import { Bot, Mic, User, Save, X, Loader2, Power, Paperclip, Send } from 'lucide-react';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { useMacroAgent, AgentStatus, ConversationTurn } from '@/hooks/useMacroAgent';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
+import { Textarea } from '@/components/ui/textarea';
+import Image from 'next/image';
 
 enum View {
   CONVERSATION,
@@ -21,10 +26,14 @@ export default function ConversationalAgent() {
   const { user } = useAuth();
   const [view, setView] = useState<View>(View.CONVERSATION);
   const [isSaving, setIsSaving] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
   const [finalMealData, setFinalMealData] = useState<MealInfo | null>(null);
+  const [textInput, setTextInput] = useState('');
   const { toast } = useToast();
-  const { status, transcript, error, connect, disconnect } = useMacroAgent();
+  const { status, transcript, error, connect, disconnect, updateUserTranscript } = useMacroAgent();
   const conversationEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
 
   useEffect(() => {
     conversationEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -38,6 +47,50 @@ export default function ConversationalAgent() {
     }
   };
 
+  const handleTextInputSend = () => {
+    if (!textInput.trim()) return;
+    updateUserTranscript(textInput);
+    setTextInput('');
+  };
+  
+  const handlePhotoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setIsProcessing(true);
+    updateUserTranscript(`(Sent an image: ${file.name})`);
+
+    try {
+        const reader = new FileReader();
+        reader.onloadend = async () => {
+            const dataUri = reader.result as string;
+            const mealData = await photoMealLogging({ photoDataUri: dataUri });
+
+            if (mealData.items.length === 0) {
+              toast({
+                variant: 'destructive',
+                title: 'Photo Unclear',
+                description: "I couldn't identify any food items in that photo. Please try another one or describe the meal.",
+              });
+              setIsProcessing(false);
+              return;
+            }
+
+            setFinalMealData(mealData);
+            setView(View.CONFIRMING);
+        };
+        reader.readAsDataURL(file);
+    } catch (e) {
+        console.error("Photo logging failed:", e);
+        toast({ variant: 'destructive', title: 'Analysis Failed', description: 'There was an issue analyzing your photo.' });
+    } finally {
+        setIsProcessing(false);
+        if (fileInputRef.current) {
+            fileInputRef.current.value = "";
+        }
+    }
+  };
+
   const processAndSaveMeal = async () => {
     const conversationText = transcript.map(t => `${t.actor}: ${t.text}`).join('\n');
     
@@ -45,7 +98,7 @@ export default function ConversationalAgent() {
       toast({ variant: 'destructive', title: 'Save Failed', description: 'There is no conversation to save.' });
       return;
     }
-    setIsSaving(true);
+    setIsProcessing(true);
 
     try {
       const mealData = await extractMealInfo({
@@ -58,7 +111,7 @@ export default function ConversationalAgent() {
           title: 'Not Enough Info',
           description: "I don't have enough information to log a meal yet. Please describe what you ate, and for which meal (breakfast, lunch, dinner, or snack).",
         });
-        setIsSaving(false);
+        setIsProcessing(false);
         return;
       }
       
@@ -69,7 +122,7 @@ export default function ConversationalAgent() {
       console.error("Failed to extract meal info:", error);
       toast({ variant: 'destructive', title: 'Extraction Failed', description: 'I couldn\'t figure out the meal from our conversation.' });
     } finally {
-      setIsSaving(false);
+      setIsProcessing(false);
     }
   };
 
@@ -99,6 +152,7 @@ export default function ConversationalAgent() {
 
   const resetConversation = () => {
     disconnect();
+    setTextInput('');
     setView(View.CONVERSATION);
     setFinalMealData(null);
     setIsSaving(false);
@@ -108,7 +162,7 @@ export default function ConversationalAgent() {
     switch (status) {
       case AgentStatus.IDLE:
       case AgentStatus.ERROR:
-        return { text: 'Start Conversation', icon: <Mic className="mr-2 h-4 w-4" />, variant: 'outline' as const, disabled: false };
+        return { text: 'Start Conversation', icon: <Mic className="mr-2 h-4 w-4" />, variant: 'outline' as const, disabled: isProcessing };
       case AgentStatus.CONNECTING:
         return { text: 'Connecting...', icon: <Loader2 className="mr-2 h-4 w-4 animate-spin" />, variant: 'outline' as const, disabled: true };
       case AgentStatus.CONNECTED:
@@ -116,20 +170,21 @@ export default function ConversationalAgent() {
       case AgentStatus.DISCONNECTING:
         return { text: 'Disconnecting...', icon: <Loader2 className="mr-2 h-4 w-4 animate-spin" />, variant: 'destructive' as const, disabled: true };
       default:
-        return { text: 'Start Conversation', icon: <Mic className="mr-2 h-4 w-4" />, variant: 'outline' as const, disabled: false };
+        return { text: 'Start Conversation', icon: <Mic className="mr-2 h-4 w-4" />, variant: 'outline' as const, disabled: isProcessing };
     }
   };
 
   const buttonState = getButtonState();
+  const isLoading = isProcessing || isSaving || status === AgentStatus.CONNECTING || status === AgentStatus.DISCONNECTING;
 
   return (
     <Card className="flex flex-col h-[70vh]">
       <CardHeader>
-        <CardTitle>Conversational Logging</CardTitle>
+        <CardTitle>Log Your Meal</CardTitle>
         <CardDescription>
             {view === View.CONFIRMING
               ? "Please review the meal details below."
-              : "Click 'Start Conversation' and speak naturally to log your meal."}
+              : "Describe your meal by typing, speaking, or uploading a photo."}
         </CardDescription>
       </CardHeader>
 
@@ -143,17 +198,17 @@ export default function ConversationalAgent() {
               </Alert>
             )}
 
-            {transcript.length === 0 && status !== AgentStatus.CONNECTING && (
+            {transcript.length === 0 && !isLoading && (
               <div className="flex flex-col items-center justify-center h-full text-center">
                 <Bot className="w-16 h-16 text-muted-foreground/50" />
-                <p className="mt-4 text-muted-foreground">Click below to start the conversation.</p>
+                <p className="mt-4 text-muted-foreground">Log your meal to get started.</p>
               </div>
             )}
             
-            {status === AgentStatus.CONNECTING && (
+            {isLoading && transcript.length === 0 && (
                <div className="flex flex-col items-center justify-center h-full text-center">
                 <Loader2 className="w-16 h-16 text-muted-foreground/50 animate-spin" />
-                <p className="mt-4 text-muted-foreground">Connecting to agent...</p>
+                <p className="mt-4 text-muted-foreground">Processing...</p>
               </div>
             )}
 
@@ -178,34 +233,66 @@ export default function ConversationalAgent() {
           </CardContent>
 
           <CardFooter className="pt-4 border-t flex-col gap-4">
-            <div className="flex w-full items-center space-x-2">
+            <div className="flex w-full items-start space-x-2">
+                <Textarea
+                    placeholder="Type what you ate or click the mic to speak..."
+                    value={textInput}
+                    onChange={(e) => setTextInput(e.target.value)}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            handleTextInputSend();
+                        }
+                    }}
+                    rows={1}
+                    className="max-h-24"
+                    disabled={isLoading || status === AgentStatus.CONNECTED}
+                />
+                <Button onClick={handleTextInputSend} disabled={isLoading || !textInput.trim()}>
+                    <Send className="h-4 w-4" />
+                </Button>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handlePhotoUpload}
+                  className="hidden"
+                  ref={fileInputRef}
+                  disabled={isLoading}
+                />
+                <Button variant="outline" size="icon" onClick={() => fileInputRef.current?.click()} disabled={isLoading}>
+                    <Paperclip className="h-4 w-4" />
+                </Button>
                 <Button
-                  className="w-full"
+                  size="icon"
                   variant={buttonState.variant}
                   onClick={handleToggleConnection}
                   disabled={buttonState.disabled}
                 >
                   {buttonState.icon}
-                  {buttonState.text}
                 </Button>
+            </div>
+            <div className="flex w-full items-center justify-between">
+                {status === AgentStatus.CONNECTED && (
+                    <div className="flex items-center text-sm text-green-500">
+                      <span className="relative flex h-2 w-2 rounded-full bg-green-500 mr-2"></span>
+                      Live Conversation Active
+                    </div>
+                )}
                 <Button
                     onClick={processAndSaveMeal}
-                    disabled={transcript.length === 0 || isSaving || status !== AgentStatus.CONNECTED}
+                    disabled={transcript.length === 0 || isLoading}
+                    variant="default"
+                    size="sm"
+                    className="ml-auto"
                 >
-                    {isSaving ? (
+                    {isProcessing ? (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     ) : (
                         <Save className="mr-2 h-4 w-4" />
                     )}
-                    Log Meal
+                    Log Described Meal
                 </Button>
             </div>
-            {status === AgentStatus.CONNECTED && (
-                <div className="flex items-center text-sm text-green-500">
-                  <span className="relative flex h-2 w-2 rounded-full bg-green-500 mr-2"></span>
-                  Live
-                </div>
-            )}
           </CardFooter>
         </>
       ) : (
@@ -216,7 +303,7 @@ export default function ConversationalAgent() {
                 <CardHeader>
                   <CardTitle>Confirm Your Meal</CardTitle>
                   <CardDescription>
-                    Ready to log this as {finalMealData.mealCategory}. Is this correct?
+                    Ready to log this as {finalMealData.mealCategory === 'unknown' ? 'a meal' : finalMealData.mealCategory}. Is this correct?
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
