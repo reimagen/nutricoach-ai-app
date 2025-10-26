@@ -1,30 +1,50 @@
-import type { Metadata } from "next";
-import { AuthProvider } from "@/hooks/useAuth";
-import { Toaster } from "@/components/ui/toaster";
-import "./globals.css";
+import './globals.css';
+import type { Metadata } from 'next';
+import { Lato, Source_Code_Pro } from 'next/font/google';
+
+import { AuthProvider } from '@/hooks/useAuth';
+import { VoiceAgentProvider } from '@/hooks/useVoiceAgentProvider';
+import { ThemeProvider } from '@/components/theme-provider';
+import { Toaster } from '@/components/ui/sonner';
+import { cn } from '@/lib/utils';
+
+const lato = Lato({ 
+  subsets: ['latin'],
+  weight: ['400', '700', '900'],
+  variable: '--font-headline',
+});
+
+const sourceCodePro = Source_Code_Pro({
+  subsets: ['latin'],
+  variable: '--font-code',
+});
 
 export const metadata: Metadata = {
-  title: "Next-Gen Fitness",
-  description: "A cutting-edge fitness and nutrition tracking application.",
+  title: 'Next.js Starter',
+  description: 'Next.js Starter',
 };
 
 export default function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode;
-}>) {
+}) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link href="https://fonts.googleapis.com/css2?family=Belleza&family=Source+Code+Pro:ital,wght@0,200..900;1,200..900&display=swap" rel="stylesheet" />
-        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@/@tiktok/e-sans@1.0.2/dist/css/tiktok-e-sans.css" />
-      </head>
-      <body className="font-body antialiased">
+      <body
+        className={cn(
+          'font-body',
+          lato.variable,
+          sourceCodePro.variable
+        )}
+      >
         <AuthProvider>
-          {children}
-          <Toaster />
+          <VoiceAgentProvider>
+            <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+              <main>{children}</main>
+              <Toaster />
+            </ThemeProvider>
+          </VoiceAgentProvider>
         </AuthProvider>
       </body>
     </html>

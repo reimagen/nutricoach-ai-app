@@ -1,14 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import {
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-  GoogleAuthProvider,
-  signInWithPopup,
-} from 'firebase/auth';
-import { auth, db } from '@/lib/firebase';
-import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
+import { signInWithEmail, signUpWithEmail, signInWithGoogle } from '@/lib/api/auth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -27,18 +20,12 @@ export default function AuthForm() {
     setIsLoading(true);
     setError(null);
     try {
-      let userCredential;
       if (isLogin) {
-        userCredential = await signInWithEmailAndPassword(auth, email, password);
+        await signInWithEmail(email, password);
       } else {
-        userCredential = await createUserWithEmailAndPassword(auth, email, password);
-        // Create user document in Firestore
-        await setDoc(doc(db, 'users', userCredential.user.uid), {
-          email: userCredential.user.email,
-          createdAt: serverTimestamp(),
-          displayName: userCredential.user.email?.split('@')[0],
-        });
+        await signUpWithEmail(email, password);
       }
+      // On successful login/signup, the useAuth hook will redirect
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -49,19 +36,9 @@ export default function AuthForm() {
   const handleGoogleSignIn = async () => {
     setIsLoading(true);
     setError(null);
-    const provider = new GoogleAuthProvider();
     try {
-      const result = await signInWithPopup(auth, provider);
-      const userDocRef = doc(db, "users", result.user.uid);
-      const userDoc = await getDoc(userDocRef);
-      
-      if (!userDoc.exists()) {
-         await setDoc(userDocRef, {
-            email: result.user.email,
-            displayName: result.user.displayName,
-            createdAt: serverTimestamp(),
-        });
-      }
+      await signInWithGoogle();
+      // On successful login/signup, the useAuth hook will redirect
     } catch (err: any) {
       setError(err.message);
     } finally {

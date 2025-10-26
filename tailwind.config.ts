@@ -1,5 +1,3 @@
-import type {Config} from 'tailwindcss';
-
 export default {
   darkMode: ['class'],
   content: [
@@ -18,7 +16,7 @@ export default {
     extend: {
       fontFamily: {
         body: ['TikTok Sans', 'sans-serif'],
-        headline: ['Belleza', 'sans-serif'],
+        headline: ['Lato', 'sans-serif'],
         code: ['Source Code Pro', 'monospace'],
       },
       colors: {
@@ -57,8 +55,8 @@ export default {
         },
       },
       borderRadius: {
-        lg: "var(--radius)",
-        md: "calc(var(--radius) - 2px)",
+        lg: `var(--radius)`,
+        md: `calc(var(--radius) - 2px)`,
         sm: "calc(var(--radius) - 4px)",
       },
       keyframes: {
@@ -78,4 +76,4 @@ export default {
     },
   },
   plugins: [require('tailwindcss-animate')],
-} satisfies Config;
+};

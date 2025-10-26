@@ -1,47 +1,56 @@
+
 'use client';
 
-import React, { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { ChatSidebar } from '@/components/chat/ChatSidebar';
+import Link from 'next/link';
 import { useAuth } from '@/hooks/useAuth';
-import { Loader2 } from 'lucide-react';
-import SidebarNav from './SidebarNav';
-import UserNav from './UserNav';
-import { Toaster } from '@/components/ui/toaster';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Button } from '@/components/ui/button';
 
-export default function AppLayout({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
-  const router = useRouter();
 
-  useEffect(() => {
-    if (!loading && !user) {
-      router.push('/login');
+// Function to get initials from the user's name or email
+const getInitials = (user: any) => {
+    if (user?.userProfile?.name) {
+      return user.userProfile.name
+        .split(' ')
+        .map((n: string) => n[0])
+        .join('');
     }
-  }, [user, loading, router]);
+    if (user?.email) {
+      return user.email.charAt(0).toUpperCase();
+    }
+    return 'U'; // Default initial
+};
 
-  if (loading || !user) {
-    return (
-      <div className="flex h-screen w-full items-center justify-center bg-background">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
-  }
+
+export function AppLayout({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
 
   return (
-    <div className="flex min-h-screen w-full flex-col bg-muted/40">
-      <SidebarNav />
-      <div className="flex flex-col sm:gap-4 sm:py-4 sm:pl-14">
-        <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b bg-background px-4 sm:static sm:h-auto sm:border-0 sm:bg-transparent sm:px-6">
-          {/* Mobile menu trigger can go here if needed */}
-          <div className="relative ml-auto flex-1 md:grow-0">
-            {/* Search bar could go here */}
-          </div>
-          <UserNav />
-        </header>
-        <main className="grid flex-1 items-start gap-4 p-4 sm:px-6 sm:py-0 md:gap-8">
+    <div className="flex h-screen flex-col bg-background">
+      <header className="flex h-16 shrink-0 items-center justify-between border-b bg-background px-4 md:px-6">
+        <Link href="/" className="text-lg font-bold">
+          NutriCoach AI
+        </Link>
+        {user && (
+            <Link href="/profile" passHref>
+                <Button variant="ghost" className="relative h-10 w-10 rounded-full">
+                    <Avatar className="h-10 w-10">
+                    <AvatarImage src={user.userProfile?.avatarUrl || ''} alt="User avatar" />
+                    <AvatarFallback>{getInitials(user)}</AvatarFallback>
+                    </Avatar>
+                </Button>
+            </Link>
+        )}
+      </header>
+      <div className="flex flex-1 overflow-hidden">
+        <main className="flex-1 overflow-y-auto p-4 md:p-6">
           {children}
         </main>
+        <aside className="w-full lg:w-[420px] lg:border-l lg:border-slate-200">
+          <ChatSidebar />
+        </aside>
       </div>
-      <Toaster />
     </div>
   );
 }

@@ -30,16 +30,6 @@ const nextConfig: NextConfig = {
       },
     ],
   },
-  // In a future version of Next.js, the dev server will not work in this environment
-  // without this configuration.
-  // See: https://nextjs.org/docs/app/api-reference/config/next-config-js/allowedDevOrigins
-  ...(process.env.NODE_ENV === 'development' && {
-    experimental: {
-      allowedDevOrigins: [
-        'https://6000-firebase-studio-1761164008351.cluster-76blnmxvvzdpat4inoxk5tmzik.cloudworkstations.dev',
-      ],
-    },
-  }),
 };
 
 export default nextConfig;
