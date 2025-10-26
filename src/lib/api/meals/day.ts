@@ -11,7 +11,7 @@ import {
 } from "firebase/firestore";
 import { MealEntry } from "@/types";
 import { startOfDay, endOfDay } from 'date-fns';
-import { zonedTimeToUtc } from 'date-fns-tz';
+import { utcToZonedTime } from 'date-fns-tz';
 
 /**
  * Fetches all meal entries for a specific user on a given day, adjusted for timezone.
@@ -27,8 +27,8 @@ export const getMealEntriesForDay = async (uid: string, date: Date, timezone: st
   }
 
   try {
-    const start = zonedTimeToUtc(startOfDay(date), timezone);
-    const end = zonedTimeToUtc(endOfDay(date), timezone);
+    const start = startOfDay(date);
+    const end = endOfDay(date);
 
     const q = query(
       collection(db, `users/${uid}/meals`),
@@ -59,8 +59,8 @@ export const getMealEntriesForDateRange = async (uid: string, startDate: Date, e
   }
 
   try {
-    const start = zonedTimeToUtc(startOfDay(startDate), timezone);
-    const end = zonedTimeToUtc(endOfDay(endDate), timezone);
+    const start = startOfDay(startDate);
+    const end = endOfDay(endDate);
 
     const q = query(
       collection(db, `users/${uid}/meals`),

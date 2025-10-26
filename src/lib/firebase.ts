@@ -1,7 +1,7 @@
 
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
-import { initializeAuth, browserLocalPersistence, browserPopupRedirectResolver } from "firebase/auth";
+import { getAuth } from "firebase/auth";
 
 // Load Firebase configuration from environment variables
 const firebaseConfig = {
@@ -22,13 +22,8 @@ if (!firebaseConfig.projectId) {
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 const db = getFirestore(app);
 
-// To reduce the bundle size, we initialize a lighter-weight Auth instance.
-// This includes only the persistence and pop-up/redirect logic needed for this app.
-// If you need to add other auth features (e.g., phone auth, session persistence),
-// you may need to import additional modules here or revert to using getAuth(app).
-const auth = initializeAuth(app, {
-  persistence: browserLocalPersistence,
-  popupRedirectResolver: browserPopupRedirectResolver,
-});
+// Use getAuth for compatibility with both client and server environments.
+const auth = getAuth(app);
+
 
 export { app, db, auth };
