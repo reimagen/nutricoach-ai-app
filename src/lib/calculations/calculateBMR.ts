@@ -30,7 +30,7 @@ const mifflinStJeorEquation = (
  * @param profile - The user's profile data.
  * @returns The user's BMR, or 0 if essential data is missing.
  */
-export const calculateUserBMR = (profile: UserProfile): number => {
+export const calculateBMR = (profile: UserProfile): number => {
   const { age, gender } = profile;
 
   // Get standardized metric values using utility functions

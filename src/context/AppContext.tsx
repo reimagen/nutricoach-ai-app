@@ -7,7 +7,7 @@ import { useVoiceAgent } from '@/hooks/useVoiceAgent';
 import { useAuth } from '@/hooks/useAuth';
 import { User, MealEntry, Macros } from '@/types';
 import { calculateTargetMacros } from '@/lib/calculations/calculateTargetMacros';
-import { calculateDailyTotal } from '@/lib/calculations/calculateDailyTotal';
+import { calculateDailyMealTotal } from '@/lib/calculations/calculateDailyMealTotal';
 
 interface AppContextType {
   state: AppState;
@@ -41,7 +41,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           // Only perform calculations if the user has set up their profile and goals
           if (userData.userProfile && userData.userGoal) {
             dailyMacrosTarget = calculateTargetMacros(userData);
-            currentMacros = calculateDailyTotal(mealEntries || []);
+            currentMacros = calculateDailyMealTotal(mealEntries || []);
           }
 
           // Always dispatch to ensure the user object is populated even for new users

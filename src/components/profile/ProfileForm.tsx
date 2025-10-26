@@ -10,8 +10,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { updateUser } from '@/lib/api/user';
-import { UserProfile, UserGoal } from '@/types';
-import { calculateTargetMacros } from '@/lib/calculations/calculateTargetMacros';
+import { UserProfile, UserGoal, BodyweightGoal } from '@/types';
 import { useState } from 'react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { AlertCircle, CheckCircle } from 'lucide-react';
@@ -25,14 +24,29 @@ const profileFormSchema = z.object({
   weight: z.coerce.number().positive(),
   activityLevel: z.enum(['sedentary', 'light', 'moderate', 'active', 'veryActive']),
   goalType: z.enum(['weight-loss', 'maintenance', 'weight-gain', 'muscle-gain']),
+  proteinPerBodyweight: z.coerce.number().positive(),
+  remainingCarbs: z.coerce.number().min(0).max(100),
+  remainingFat: z.coerce.number().min(0).max(100),
+}).refine(data => data.remainingCarbs + data.remainingFat === 100, {
+  message: "Carbs and Fat percentages must add up to 100",
+  path: ["remainingCarbs"],
 });
 
 type ProfileFormValues = z.infer<typeof profileFormSchema>;
+
+const GOAL_ADJUSTMENT_PERCENTAGES = {
+  'weight-loss': -0.20,
+  'weight-gain': 0.15,
+  'muscle-gain': 0.10,
+  'maintenance': 0,
+};
 
 export default function ProfileForm() {
   const { user, loading, forceReload } = useAuth();
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+
+  const bodyweightGoal = user?.userGoal?.calculationStrategy === 'bodyweight' ? user.userGoal as BodyweightGoal : undefined;
 
   const form = useForm<ProfileFormValues>({
     resolver: zodResolver(profileFormSchema),
@@ -45,6 +59,9 @@ export default function ProfileForm() {
       weight: user?.userProfile?.weight || 0,
       activityLevel: user?.userProfile?.activityLevel || 'sedentary',
       goalType: user?.userGoal?.type || 'maintenance',
+      proteinPerBodyweight: bodyweightGoal?.proteinPerBodyweight || 2.2,
+      remainingCarbs: (bodyweightGoal?.remainingSplit?.carbs || 0.5) * 100,
+      remainingFat: (bodyweightGoal?.remainingSplit?.fat || 0.5) * 100,
     },
   });
 
@@ -64,16 +81,18 @@ export default function ProfileForm() {
         activityLevel: data.activityLevel,
     };
 
-    const userGoal: UserGoal = {
-        type: data.goalType,
-        calculationStrategy: 'percentage',
-        targets: { calories: 0, protein: 0, carbs: 0, fat: 0 },
-    };
+    const adjustmentPercentage = GOAL_ADJUSTMENT_PERCENTAGES[data.goalType];
 
-    const calculatedTargets = calculateTargetMacros(userProfile, userGoal);
-    if (calculatedTargets) {
-        userGoal.targets = calculatedTargets;
-    }
+    const userGoal: BodyweightGoal = {
+        type: data.goalType,
+        calculationStrategy: 'bodyweight',
+        proteinPerBodyweight: data.proteinPerBodyweight,
+        remainingSplit: {
+            carbs: data.remainingCarbs / 100,
+            fat: data.remainingFat / 100,
+        },
+        adjustmentPercentage,
+    };
 
     try {
       await updateUser(user.uid, { userProfile, userGoal });
@@ -252,6 +271,51 @@ export default function ProfileForm() {
             </FormItem>
           )}
         />
+
+        <div className="space-y-4">
+            <h3 class="text-lg font-medium">Bodyweight-Based Macro Calculation</h3>
+            <FormField
+                control={form.control}
+                name="proteinPerBodyweight"
+                render={({ field }) => (
+                    <FormItem>
+                    <FormLabel>Protein per Bodyweight (g/kg or g/lb)</FormLabel>
+                    <FormControl>
+                        <Input type="number" placeholder="2.2" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                    </FormItem>
+                )}
+            />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <FormField
+                    control={form.control}
+                    name="remainingCarbs"
+                    render={({ field }) => (
+                        <FormItem>
+                        <FormLabel>Remaining Carbs (%)</FormLabel>
+                        <FormControl>
+                            <Input type="number" placeholder="50" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                        </FormItem>
+                    )}
+                />
+                <FormField
+                    control={form.control}
+                    name="remainingFat"
+                    render={({ field }) => (
+                        <FormItem>
+                        <FormLabel>Remaining Fat (%)</FormLabel>
+                        <FormControl>
+                            <Input type="number" placeholder="50" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                        </FormItem>
+                    )}
+                />
+            </div>
+        </div>
 
         <Button type="submit" disabled={loading}>Update Profile</Button>
       </form>

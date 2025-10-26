@@ -1,6 +1,6 @@
 
 import { MealEntry, Macros } from '@/types';
-import { calculateMealEntryMacros } from './calculateMealEntry'; // Import the function
+import { calculateMealEntryMacros } from './calculateMealEntry';
 
 /**
  * Calculates the total current macros from a list of meal entries for today.
@@ -8,14 +8,17 @@ import { calculateMealEntryMacros } from './calculateMealEntry'; // Import the f
  * @param mealEntries - An array of all MealEntry objects for the user.
  * @returns A Macros object with the summed totals for today.
  */
-export const calculateDailyTotal = (mealEntries: MealEntry[]): Macros => {
+export const calculateDailyMealTotal = (mealEntries: MealEntry[]): Macros => {
   const today = new Date().toISOString().split('T')[0];
 
-  const todaysEntries = mealEntries.filter(entry => entry.timestamp.startsWith(today));
+  const todaysEntries = mealEntries.filter(entry => {
+    // This handles both native Date and Firestore Timestamp objects.
+    const entryDate = entry.timestamp instanceof Date ? entry.timestamp : entry.timestamp.toDate();
+    return entryDate.toISOString().startsWith(today);
+  });
 
   return todaysEntries.reduce(
     (acc, entry) => {
-      // Delegate the macro calculation to the specialized function
       const entryMacros = calculateMealEntryMacros(entry.items);
       acc.calories += entryMacros.calories;
       acc.protein += entryMacros.protein;

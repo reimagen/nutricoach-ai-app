@@ -23,8 +23,8 @@ export interface UserProfile {
  */
 interface UserGoalBase {
   type: 'weight-loss' | 'weight-gain' | 'muscle-gain' | 'maintenance';
-  /** The user's target daily calorie intake, adjusted from TDEE for their goal. */
-  targetCalories: number;
+  /** The percentage adjustment to apply to TDEE. Negative for loss (e.g., -0.20), positive for gain (e.g., 0.15). */
+  adjustmentPercentage: number;
 }
 
 /**
@@ -32,8 +32,8 @@ interface UserGoalBase {
  */
 export interface PercentageGoal extends UserGoalBase {
   calculationStrategy: 'percentage';
-  /** The macro split to be used for the calculation. */
-  split: MacroSplit;
+  /** The macro split to be used for the calculation. This is optional and may not be present initially. */
+  split?: MacroSplit;
 }
 
 /**

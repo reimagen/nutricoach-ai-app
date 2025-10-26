@@ -2,13 +2,13 @@
 import { BodyweightGoal, UserProfile } from '@/types';
 import { Macros } from '@/types/macros';
 import { getWeightInKg } from '@/lib/utils/convertWeight';
-import { PROTEIN_CALORIES_PER_GRAM } from '@/lib/constants';
+import { PROTEIN_CALORIES_PER_GRAM, GOAL_BASED_REMAINING_SPLITS, DEFAULT_REMAINING_SPLIT } from '@/constants';
 import { convertGrams } from '@/lib/utils/convertGrams';
 
 /**
  * Calculates macronutrient targets based on bodyweight multipliers.
  *
- * @param goal - The user's bodyweight-based goal, containing the multipliers.
+ * @param goal - The user's bodyweight-based goal, containing the multipliers and goal type.
  * @param profile - The user's profile, used to get their current weight.
  * @param calorieTarget - The final target calories for the day.
  * @returns A Macros object with the calculated targets, or null if weight is not available.
@@ -16,7 +16,7 @@ import { convertGrams } from '@/lib/utils/convertGrams';
 export const calculateMacrosByBodyweight = (
   goal: BodyweightGoal,
   profile: UserProfile,
-  calorieTarget: number // New parameter
+  calorieTarget: number
 ): Macros | null => {
   const weightInKg = getWeightInKg(profile);
 
@@ -24,22 +24,26 @@ export const calculateMacrosByBodyweight = (
     return null;
   }
 
-  // 1. Calculate protein grams and calories first
-  const proteinInGrams = weightInKg * goal.proteinPerBodyweight;
-  const proteinCalories = proteinInGrams * PROTEIN_CALORIES_PER_GRAM;
+  // 1. Calculate and round protein grams first to ensure consistency.
+  const roundedProteinInGrams = Math.round(weightInKg * goal.proteinPerBodyweight);
+  const proteinCalories = roundedProteinInGrams * PROTEIN_CALORIES_PER_GRAM;
 
-  // 2. Calculate remaining calories for carbs and fat
+  // 2. Calculate remaining calories based on the definite protein calorie value.
   const remainingCalories = calorieTarget - proteinCalories;
 
-  // 3. Use the convertGrams utility for the remaining calories
+  // 3. Determine the split for remaining calories. 
+  // Priority: User's custom split > Goal-based split > Default split
+  const remainingSplit = goal.remainingSplit || GOAL_BASED_REMAINING_SPLITS[goal.type] || DEFAULT_REMAINING_SPLIT;
+
+  // 4. Use the convertGrams utility for the remaining calories.
   const remainingGrams = convertGrams(remainingCalories, {
     protein: 0, // No protein in the remainder
-    ...goal.remainingSplit,
+    ...remainingSplit,
   });
 
   return {
     calories: calorieTarget,
-    protein: Math.round(proteinInGrams),
+    protein: roundedProteinInGrams, // Use the rounded value
     carbs: remainingGrams.carbs,
     fat: remainingGrams.fat,
   };

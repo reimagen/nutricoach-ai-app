@@ -3,8 +3,11 @@ import { Timestamp } from 'firebase/firestore';
 import { Macros } from './macros';
 
 export interface MealItem {
+  id: string;
   name: string;
   macros: Macros;
+  servings: number;
+  servingSize: string;
 }
 
 /**
