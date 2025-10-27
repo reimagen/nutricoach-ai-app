@@ -1,4 +1,3 @@
-
 'use client';
 
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -198,6 +197,7 @@ export default function ProfileForm() {
     try {
       await updateUser(user.uid, { userProfile, userGoal: userGoal as UserGoal });
       toast({ title: "Success!", description: "Your profile has been updated." });
+      forceReload(); // This will re-fetch the user data and update the macro cards
     } catch (error) {
       console.error("Error updating profile: ", error);
       toast({ title: "Error", description: "Failed to update profile. Please try again.", variant: "destructive" });
@@ -495,5 +495,3 @@ export default function ProfileForm() {
     </Form>
   );
 }
-
-    
