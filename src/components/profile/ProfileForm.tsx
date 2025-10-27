@@ -47,7 +47,7 @@ import { useEffect, useState } from "react";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { GOAL_TYPES, ACTIVITY_LEVELS, GOAL_TYPE_DETAILS, GOAL_BASED_PROTEIN_TARGETS, TIMEZONES } from "@/constants";
 import { updateUser, resetUserProfile } from "@/lib/api/user";
-import { useToast } from "@/hooks/use-toast";
+import { useToast } from "@/components/ui/use-toast";
 import { Slider } from "@/components/ui/slider";
 import { UserProfile, UserGoal, BodyweightGoal } from "@/types";
 import { ChevronsUpDown, Check } from "lucide-react";
@@ -528,7 +528,7 @@ export default function ProfileForm() {
                     </Button>
                   </FormControl>
                 </PopoverTrigger>
-                <PopoverContent className="w-[200px] p-0" align="start">
+                <PopoverContent className="w-[200px] p-0" align="start" side="bottom">
                   <Command>
                     <CommandInput placeholder="Search timezone..." />
                     <CommandEmpty>No timezone found.</CommandEmpty>
