@@ -44,7 +44,7 @@ const profileFormSchema = z.object({
   name: z.string().min(2, { message: "Name must be at least 2 characters." }),
   gender: z.enum(['male', 'female', 'other'], { required_error: "Please select a gender." }),
   age: z.coerce.number().min(1, { message: "Please enter a valid age." }),
-  height: z.coerce.number().min(1, { message: "Please enter a valid height." }),
+  height: z.coerce.number().min(1, { message: "Please enter a valid height." }).optional(),
   heightFt: z.coerce.number().optional(),
   heightIn: z.coerce.number().optional(),
   weight: z.coerce.number().min(1, { message: "Please enter a valid weight." }),
@@ -147,7 +147,6 @@ export default function ProfileForm() {
       name,
       gender,
       age,
-      height,
       weight,
       unit,
       activityLevel,
@@ -156,6 +155,15 @@ export default function ProfileForm() {
       remainingCarbs,
       remainingFat
     } = data;
+    
+    // Recalculate height in case it changed
+    let height = data.height;
+    if (unit === 'imperial') {
+        const feet = data.heightFt || 0;
+        const inches = data.heightIn || 0;
+        height = (feet * 12) + inches;
+    }
+
 
     const userProfile: UserProfile = {
       name,
@@ -171,9 +179,10 @@ export default function ProfileForm() {
     let userGoal: Partial<UserGoal> = { // Use Partial to build the object
       type: goalType,
       calculationStrategy: goalDetails.calculationStrategy,
+      adjustmentPercentage: goalDetails.adjustmentPercentage,
     };
     
-    if (goalDetails.calculationStrategy === 'bodyweight') {
+    if (goalDetails.calculationStrategy === 'bodyweight' && isBodyweightGoal) {
       if(proteinPerBodyweight) {
         const bodyweightGoal: Partial<BodyweightGoal> = {
           proteinPerBodyweight: proteinPerBodyweight,
@@ -486,3 +495,5 @@ export default function ProfileForm() {
     </Form>
   );
 }
+
+    
