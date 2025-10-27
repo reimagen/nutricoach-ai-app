@@ -2,7 +2,7 @@
 import { getMacroRecommendation } from '../getMacroRecommendation';
 import { calculateMacrosByBodyweight } from '../calculateMacrosByBodyweight';
 import { calculateMacrosByPercentage } from '../calculateMacrosByPercentage';
-import { UserProfile, UserGoal, BodyweightGoal, PercentageGoal } from '@/types';
+import { UserProfile, UserGoal, BodyweightGoal, CaloriesPercentageGoal } from '@/types';
 
 // Mock the calculation functions to isolate the logic of getMacroRecommendation
 jest.mock('../calculateMacrosByBodyweight');
@@ -34,15 +34,15 @@ describe('getMacroRecommendation', () => {
     expect(calculateMacrosByPercentage).not.toHaveBeenCalled();
   });
 
-  it('should delegate to calculateMacrosByPercentage for percentage goals', () => {
-    const percentageGoal: PercentageGoal = { 
+  it('should delegate to calculateMacrosByPercentage for calories-percentage-based goals', () => {
+    const caloriesPercentageGoal: CaloriesPercentageGoal = { 
         type: 'maintenance', 
         adjustmentPercentage: 0,
-        calculationStrategy: 'percentage', 
+        calculationStrategy: 'calories-percentage-based', 
         split: { protein: 0.3, carbs: 0.4, fat: 0.3 } 
     };
-    getMacroRecommendation(percentageGoal, mockUserProfile, calorieTarget);
-    expect(calculateMacrosByPercentage).toHaveBeenCalledWith(calorieTarget, percentageGoal.split);
+    getMacroRecommendation(caloriesPercentageGoal, mockUserProfile, calorieTarget);
+    expect(calculateMacrosByPercentage).toHaveBeenCalledWith(calorieTarget, caloriesPercentageGoal.split);
     expect(calculateMacrosByBodyweight).not.toHaveBeenCalled();
   });
 
@@ -63,13 +63,13 @@ describe('getMacroRecommendation', () => {
   });
 
   it('should return null if userProfile is undefined', () => {
-    const goal: PercentageGoal = { type: 'weight-loss', adjustmentPercentage: -0.2, calculationStrategy: 'percentage', split: { protein: 0.4, carbs: 0.3, fat: 0.3 } };
+    const goal: CaloriesPercentageGoal = { type: 'weight-loss', adjustmentPercentage: -0.2, calculationStrategy: 'calories-percentage-based', split: { protein: 0.4, carbs: 0.3, fat: 0.3 } };
     const result = getMacroRecommendation(goal, undefined, calorieTarget);
     expect(result).toBeNull();
   });
 
   it('should return null if calorieTarget is undefined', () => {
-    const goal: PercentageGoal = { type: 'weight-loss', adjustmentPercentage: -0.2, calculationStrategy: 'percentage', split: { protein: 0.4, carbs: 0.3, fat: 0.3 } };
+    const goal: CaloriesPercentageGoal = { type: 'weight-loss', adjustmentPercentage: -0.2, calculationStrategy: 'calories-percentage-based', split: { protein: 0.4, carbs: 0.3, fat: 0.3 } };
     const result = getMacroRecommendation(goal, mockUserProfile, undefined);
     expect(result).toBeNull();
   });

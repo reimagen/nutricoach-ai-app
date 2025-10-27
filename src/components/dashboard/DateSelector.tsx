@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState } from 'react';
@@ -33,31 +32,30 @@ export const DateSelector = ({ date, setDate }: DateSelectorProps) => {
   return (
     <div className="flex items-center justify-between mb-4">
       <div>
-        <h2 className="text-2xl font-bold font-headline">{formattedDate}</h2>
+        <div className="flex items-center gap-2">
+           <h2 className="text-2xl font-bold font-headline">{formattedDate}</h2>
+            <Popover open={isCalendarOpen} onOpenChange={setCalendarOpen}>
+                <PopoverTrigger asChild>
+                    <Button
+                        variant={"ghost"}
+                        size="icon"
+                        className={cn('h-8 w-8', !date && 'text-muted-foreground')}
+                    >
+                        <CalendarIcon className="h-5 w-5" />
+                    </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0">
+                <Calendar
+                    mode="single"
+                    selected={date}
+                    onSelect={handleDateSelect}
+                    initialFocus
+                />
+                </PopoverContent>
+            </Popover>
+        </div>
         <p className="text-muted-foreground">Select a date to view your log.</p>
       </div>
-      <Popover open={isCalendarOpen} onOpenChange={setCalendarOpen}>
-        <PopoverTrigger asChild>
-          <Button
-            variant={"outline"}
-            className={cn(
-              'w-[280px] justify-start text-left font-normal',
-              !date && 'text-muted-foreground'
-            )}
-          >
-            <CalendarIcon className="mr-2 h-4 w-4" />
-            {format(date, 'PPP')}
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent className="w-auto p-0">
-          <Calendar
-            mode="single"
-            selected={date}
-            onSelect={handleDateSelect}
-            initialFocus
-          />
-        </PopoverContent>
-      </Popover>
     </div>
   );
 };

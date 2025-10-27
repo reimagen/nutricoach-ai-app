@@ -1,5 +1,5 @@
 
-import { UserGoal, Macros, UserProfile, BodyweightGoal, PercentageGoal } from '@/types';
+import { UserGoal, Macros, UserProfile, BodyweightGoal, CaloriesPercentageGoal } from '@/types';
 import { calculateMacrosByBodyweight } from './calculateMacrosByBodyweight';
 import { calculateMacrosByPercentage } from './calculateMacrosByPercentage';
 
@@ -24,12 +24,12 @@ export const getMacroRecommendation = (
 
   // Use a type guard to ensure the goal has the expected properties
   const isBodyweightGoal = (g: UserGoal): g is BodyweightGoal => g.calculationStrategy === 'bodyweight';
-  const isPercentageGoal = (g: UserGoal): g is PercentageGoal => g.calculationStrategy === 'percentage';
+  const isCaloriesPercentageGoal = (g: UserGoal): g is CaloriesPercentageGoal => g.calculationStrategy === 'calories-percentage-based';
 
   if (isBodyweightGoal(goal)) {
     // Delegate to the bodyweight-based calculation function.
     return calculateMacrosByBodyweight(goal, userProfile, calorieTarget);
-  } else if (isPercentageGoal(goal)) {
+  } else if (isCaloriesPercentageGoal(goal)) {
     // Delegate to the percentage-based calculation function, passing the specific split.
     return calculateMacrosByPercentage(calorieTarget, goal.split);
   } else {

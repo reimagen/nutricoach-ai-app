@@ -47,9 +47,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         <main className="flex-1 overflow-y-auto p-4 md:p-6">
           {children}
         </main>
-        <aside className="w-full lg:w-[420px] lg:border-l lg:border-slate-200">
+        {/* <aside className="w-full lg:w-[420px] lg:border-l lg:border-slate-200">
           <ChatSidebar />
-        </aside>
+        </aside> */}
       </div>
     </div>
   );

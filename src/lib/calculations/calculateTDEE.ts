@@ -1,6 +1,6 @@
 
 import { UserProfile } from '@/types';
-import { TDEE_MULTIPLIERS } from '@/constants';
+import { ACTIVITY_LEVEL_MAP } from '@/constants/activity-levels';
 
 /**
  * Calculates Total Daily Energy Expenditure (TDEE).
@@ -14,6 +14,6 @@ export const calculateTDEE = (
   activityLevel: UserProfile['activityLevel']
 ): number => {
   // Default to sedentary if no activity level is provided (it will be null or undefined).
-  const multiplier = TDEE_MULTIPLIERS[activityLevel ?? 'sedentary'];
+  const multiplier = ACTIVITY_LEVEL_MAP[activityLevel ?? 'sedentary'].multiplier;
   return Math.round(bmr * multiplier);
 };

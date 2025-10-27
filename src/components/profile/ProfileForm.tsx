@@ -1,126 +1,158 @@
-
 'use client';
 
-import { zodResolver } from '@hookform/resolvers/zod';
-import { useForm } from 'react-hook-form';
-import { z } from 'zod';
-import { useAuth } from '@/hooks/useAuth';
-import { Button } from '@/components/ui/button';
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
-import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { updateUser } from '@/lib/api/user';
-import { UserProfile, UserGoal, BodyweightGoal } from '@/types';
-import { useState } from 'react';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { AlertCircle, CheckCircle } from 'lucide-react';
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useForm } from "react-hook-form";
+import * as z from "zod";
+import { Button } from "@/components/ui/button";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
+import { 
+  Select, 
+  SelectContent, 
+  SelectItem, 
+  SelectTrigger, 
+  SelectValue 
+} from "@/components/ui/select";
+import { useAuth } from "@/hooks/useAuth";
+import { useEffect } from "react";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { GOAL_TYPES, ACTIVITY_LEVELS, GOAL_TYPE_DETAILS } from "@/constants";
+import { updateUser } from "@/lib/api/user";
+import { useToast } from "@/hooks/use-toast";
+import { Slider } from "@/components/ui/slider";
+import { UserProfile, UserGoal } from "@/types";
 
 const profileFormSchema = z.object({
-  name: z.string().min(2, { message: 'Name must be at least 2 characters.' }),
-  age: z.coerce.number().int().positive(),
-  gender: z.enum(['male', 'female', 'other']),
-  units: z.enum(['metric', 'imperial']).default('imperial'),
-  height: z.coerce.number().positive(),
-  weight: z.coerce.number().positive(),
-  activityLevel: z.enum(['sedentary', 'light', 'moderate', 'active', 'veryActive']),
-  goalType: z.enum(['weight-loss', 'maintenance', 'weight-gain', 'muscle-gain']),
-  proteinPerBodyweight: z.coerce.number().positive(),
-  remainingCarbs: z.coerce.number().min(0).max(100),
-  remainingFat: z.coerce.number().min(0).max(100),
-}).refine(data => data.remainingCarbs + data.remainingFat === 100, {
-  message: "Carbs and Fat percentages must add up to 100",
-  path: ["remainingCarbs"],
+  name: z.string().min(2, { message: "Name must be at least 2 characters." }),
+  gender: z.enum(['male', 'female', 'other'], { required_error: "Please select a gender." }),
+  age: z.coerce.number().min(1, { message: "Please enter a valid age." }),
+  height: z.coerce.number().min(1, { message: "Please enter a valid height." }),
+  weight: z.coerce.number().min(1, { message: "Please enter a valid weight." }),
+  unit: z.enum(['metric', 'imperial'], { required_error: "Please select a unit system." }),
+  activityLevel: z.enum(['sedentary', 'light', 'moderate', 'active', 'veryActive'], { required_error: "Please select an activity level." }),
+  goalType: z.enum(['weight-loss', 'weight-gain', 'maintenance', 'muscle-gain'], { required_error: "Please select a goal." }),
+
+  // Optional fields for bodyweight-based goals
+  proteinPerBodyweight: z.coerce.number().optional(),
+  remainingCarbs: z.coerce.number().optional(),
+  remainingFat: z.coerce.number().optional(),
 });
 
-type ProfileFormValues = z.infer<typeof profileFormSchema>;
-
-const GOAL_ADJUSTMENT_PERCENTAGES = {
-  'weight-loss': -0.20,
-  'weight-gain': 0.15,
-  'muscle-gain': 0.10,
-  'maintenance': 0,
-};
+export type ProfileFormValues = z.infer<typeof profileFormSchema>;
 
 export default function ProfileForm() {
-  const { user, loading, forceReload } = useAuth();
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
-
-  const bodyweightGoal = user?.userGoal?.calculationStrategy === 'bodyweight' ? user.userGoal as BodyweightGoal : undefined;
+  const { user, loading } = useAuth();
+  const { toast } = useToast();
 
   const form = useForm<ProfileFormValues>({
     resolver: zodResolver(profileFormSchema),
     defaultValues: {
-      name: user?.userProfile?.name || '',
-      age: user?.userProfile?.age || 0,
-      gender: user?.userProfile?.gender || 'male',
-      units: user?.userProfile?.units || 'imperial',
-      height: user?.userProfile?.height || 0,
-      weight: user?.userProfile?.weight || 0,
-      activityLevel: user?.userProfile?.activityLevel || 'sedentary',
-      goalType: user?.userGoal?.type || 'maintenance',
-      proteinPerBodyweight: bodyweightGoal?.proteinPerBodyweight || 2.2,
-      remainingCarbs: (bodyweightGoal?.remainingSplit?.carbs || 0.5) * 100,
-      remainingFat: (bodyweightGoal?.remainingSplit?.fat || 0.5) * 100,
+      name: undefined,
+      gender: undefined,
+      age: undefined,
+      height: undefined,
+      weight: undefined,
+      unit: 'metric',
+      activityLevel: undefined,
+      goalType: undefined,
+      proteinPerBodyweight: undefined,
+      remainingCarbs: 50, // Default to 50/50 split
+      remainingFat: 50,
     },
   });
 
-  async function onSubmit(data: ProfileFormValues) {
-    if (!user) return;
+  const goalType = form.watch('goalType');
+  const isBodyweightGoal = goalType && GOAL_TYPE_DETAILS[goalType]?.calculationStrategy === 'bodyweight';
 
-    setError(null);
-    setSuccess(null);
+  const carbPercentage = form.watch('remainingCarbs') ?? 50;
+
+  useEffect(() => {
+    if (user) {
+      const { userProfile, userGoal } = user;
+      const bodyweightGoal = userGoal?.calculationStrategy === 'bodyweight' ? userGoal : null;
+
+      form.reset({
+        name: userProfile?.name ?? undefined,
+        gender: userProfile?.gender ?? undefined,
+        age: userProfile?.age ?? undefined,
+        height: userProfile?.height ?? undefined,
+        weight: userProfile?.weight ?? undefined,
+        unit: userProfile?.unit ?? 'metric',
+        activityLevel: userProfile?.activityLevel ?? undefined,
+        goalType: userGoal?.type ?? undefined,
+        proteinPerBodyweight: bodyweightGoal?.proteinPerBodyweight ?? undefined,
+        remainingCarbs: bodyweightGoal?.remainingSplit?.carbs ? bodyweightGoal.remainingSplit.carbs * 100 : 50,
+        remainingFat: bodyweightGoal?.remainingSplit?.fat ? bodyweightGoal.remainingSplit.fat * 100 : 50,
+      });
+    }
+  }, [user, form]);
+
+  async function onSubmit(data: ProfileFormValues) {
+    if (!user) {
+      toast({ title: "Error", description: "You must be logged in to update your profile.", variant: "destructive" });
+      return;
+    }
+
+    const {
+      name,
+      gender,
+      age,
+      height,
+      weight,
+      unit,
+      activityLevel,
+      goalType,
+      proteinPerBodyweight,
+      remainingCarbs,
+      remainingFat
+    } = data;
 
     const userProfile: UserProfile = {
-        name: data.name,
-        age: data.age,
-        gender: data.gender,
-        units: data.units,
-        height: data.height,
-        weight: data.weight,
-        activityLevel: data.activityLevel,
+      name,
+      gender,
+      age,
+      height,
+      weight,
+      unit,
+      activityLevel,
     };
 
-    const adjustmentPercentage = GOAL_ADJUSTMENT_PERCENTAGES[data.goalType];
-
-    const userGoal: BodyweightGoal = {
-        type: data.goalType,
-        calculationStrategy: 'bodyweight',
-        proteinPerBodyweight: data.proteinPerBodyweight,
+    const goalDetails = GOAL_TYPE_DETAILS[goalType];
+    let userGoal: UserGoal = {
+      type: goalType,
+      calculationStrategy: goalDetails.calculationStrategy,
+    };
+    
+    if (goalDetails.calculationStrategy === 'bodyweight') {
+      userGoal = {
+        ...userGoal,
+        proteinPerBodyweight: proteinPerBodyweight,
         remainingSplit: {
-            carbs: data.remainingCarbs / 100,
-            fat: data.remainingFat / 100,
+          carbs: (remainingCarbs ?? 50) / 100,
+          fat: (remainingFat ?? 50) / 100,
         },
-        adjustmentPercentage,
-    };
+      };
+    }
 
     try {
       await updateUser(user.uid, { userProfile, userGoal });
-      forceReload();
-      setSuccess("Your profile has been updated successfully!");
+      toast({ title: "Success!", description: "Your profile has been updated." });
     } catch (error) {
-      console.error("Error saving user data:", error);
-      setError("There was an error updating your profile. Please try again.");
+      console.error("Error updating profile: ", error);
+      toast({ title: "Error", description: "Failed to update profile. Please try again.", variant: "destructive" });
     }
   }
 
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
-        {error && (
-          <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
-            <AlertTitle>Error</AlertTitle>
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
-        {success && (
-          <Alert variant="success">
-            <CheckCircle className="h-4 w-4" />
-            <AlertTitle>Success</AlertTitle>
-            <AlertDescription>{success}</AlertDescription>
-          </Alert>
-        )}
         <FormField
           control={form.control}
           name="name"
@@ -128,7 +160,7 @@ export default function ProfileForm() {
             <FormItem>
               <FormLabel>Name</FormLabel>
               <FormControl>
-                <Input placeholder="Your name" {...field} />
+                <Input placeholder="Jane Doe" {...field} value={field.value ?? ''} />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -136,91 +168,100 @@ export default function ProfileForm() {
         />
         
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            <FormField
+          <FormField
             control={form.control}
             name="age"
             render={({ field }) => (
-                <FormItem>
+              <FormItem>
                 <FormLabel>Age</FormLabel>
                 <FormControl>
-                    <Input type="number" placeholder="25" {...field} />
+                  <Input type="number" placeholder="25" {...field} value={field.value ?? ''} />
                 </FormControl>
                 <FormMessage />
-                </FormItem>
+              </FormItem>
             )}
-            />
-            <FormField
+          />
+          <FormField
             control={form.control}
             name="gender"
             render={({ field }) => (
-                <FormItem>
+              <FormItem>
                 <FormLabel>Gender</FormLabel>
-                <Select onValueChange={field.onChange} defaultValue={field.value}>
-                    <FormControl>
+                <Select onValueChange={field.onChange} value={field.value}>
+                  <FormControl>
                     <SelectTrigger>
-                        <SelectValue placeholder="Select a gender" />
+                      <SelectValue placeholder="Select a gender" />
                     </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
+                  </FormControl>
+                  <SelectContent>
                     <SelectItem value="male">Male</SelectItem>
                     <SelectItem value="female">Female</SelectItem>
                     <SelectItem value="other">Other</SelectItem>
-                    </SelectContent>
+                  </SelectContent>
                 </Select>
                 <FormMessage />
-                </FormItem>
+              </FormItem>
             )}
-            />
-            <FormField
+          />
+           <FormField
             control={form.control}
-            name="units"
+            name="unit"
             render={({ field }) => (
-                <FormItem>
+              <FormItem>
                 <FormLabel>Units</FormLabel>
-                <Select onValueChange={field.onChange} defaultValue={field.value}>
-                    <FormControl>
-                    <SelectTrigger>
-                        <SelectValue placeholder="Select units" />
-                    </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                        <SelectItem value="imperial">Imperial (lbs, in)</SelectItem>
-                        <SelectItem value="metric">Metric (kg, cm)</SelectItem>
-                    </SelectContent>
-                </Select>
+                 <FormControl>
+                    <RadioGroup
+                      onValueChange={field.onChange}
+                      defaultValue={field.value}
+                      className="flex items-center space-x-4"
+                    >
+                      <FormItem className="flex items-center space-x-2">
+                        <FormControl>
+                          <RadioGroupItem value="metric" id="metric" />
+                        </FormControl>
+                        <FormLabel htmlFor="metric" className="font-normal">Metric</FormLabel>
+                      </FormItem>
+                      <FormItem className="flex items-center space-x-2">
+                        <FormControl>
+                          <RadioGroupItem value="imperial" id="imperial" />
+                        </FormControl>
+                        <FormLabel htmlFor="imperial" className="font-normal">Imperial</FormLabel>
+                      </FormItem>
+                    </RadioGroup>
+                  </FormControl>
                 <FormMessage />
-                </FormItem>
+              </FormItem>
             )}
-            />
+          />
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            <FormField
-                control={form.control}
-                name="height"
-                render={({ field }) => (
-                    <FormItem>
-                    <FormLabel>Height</FormLabel>
-                    <FormControl>
-                        <Input type="number" placeholder="70" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                    </FormItem>
-                )}
-            />
-            <FormField
-                control={form.control}
-                name="weight"
-                render={({ field }) => (
-                    <FormItem>
-                    <FormLabel>Weight</FormLabel>
-                    <FormControl>
-                        <Input type="number" placeholder="150" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                    </FormItem>
-                )}
-            />
+           <FormField
+            control={form.control}
+            name="height"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Height ({form.getValues('unit') === 'metric' ? 'cm' : 'in'})</FormLabel>
+                <FormControl>
+                  <Input type="number" placeholder={form.getValues('unit') === 'metric' ? '175' : '69'} {...field} value={field.value ?? ''} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="weight"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Weight ({form.getValues('unit') === 'metric' ? 'kg' : 'lbs'})</FormLabel>
+                <FormControl>
+                  <Input type="number" placeholder={form.getValues('unit') === 'metric' ? '70' : '154'} {...field} value={field.value ?? ''} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
         </div>
 
         <FormField
@@ -229,42 +270,39 @@ export default function ProfileForm() {
           render={({ field }) => (
             <FormItem>
               <FormLabel>Activity Level</FormLabel>
-              <Select onValueChange={field.onChange} defaultValue={field.value}>
+              <Select onValueChange={field.onChange} value={field.value}>
                 <FormControl>
                   <SelectTrigger>
                     <SelectValue placeholder="Select your activity level" />
                   </SelectTrigger>
                 </FormControl>
                 <SelectContent>
-                  <SelectItem value="sedentary">Sedentary (little or no exercise)</SelectItem>
-                  <SelectItem value="light">Lightly active (light exercise/sports 1-3 days/week)</SelectItem>
-                  <SelectItem value="moderate">Moderately active (moderate exercise/sports 3-5 days/week)</SelectItem>
-                  <SelectItem value="active">Active (hard exercise/sports 6-7 days a week)</SelectItem>
-                  <SelectItem value="veryActive">Very active (very hard exercise/physical job)</SelectItem>
+                  {ACTIVITY_LEVELS.map(level => (
+                    <SelectItem key={level.value} value={level.value}>{level.label}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
               <FormMessage />
             </FormItem>
           )}
         />
-
+        
         <FormField
           control={form.control}
           name="goalType"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Fitness Goal</FormLabel>
-              <Select onValueChange={field.onChange} defaultValue={field.value}>
+              <FormLabel>Primary Goal</FormLabel>
+              <Select onValueChange={field.onChange} value={field.value}>
                 <FormControl>
                   <SelectTrigger>
-                    <SelectValue placeholder="Select your primary goal" />
+                    <SelectValue placeholder="Select your primary fitness goal" />
                   </SelectTrigger>
                 </FormControl>
                 <SelectContent>
-                  <SelectItem value="weight-loss">Weight Loss</SelectItem>
-                  <SelectItem value="maintenance">Maintenance</SelectItem>
-                  <SelectItem value="weight-gain">Weight Gain</SelectItem>
-                  <SelectItem value="muscle-gain">Muscle Gain</SelectItem>
+                  {GOAL_TYPES.map(goal => (
+                    <SelectItem key={goal} value={goal}>{GOAL_TYPE_DETAILS[goal].description}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
               <FormMessage />
@@ -272,50 +310,57 @@ export default function ProfileForm() {
           )}
         />
 
-        <div className="space-y-4">
-            <h3 class="text-lg font-medium">Bodyweight-Based Macro Calculation</h3>
+        {isBodyweightGoal && (
+          <div className="space-y-8 rounded-md border p-4">
+            <h3 className="text-lg font-medium font-headline">Bodyweight-Based Macro Calculation</h3>
+            <p className="text-sm text-muted-foreground">
+              This calculation method uses your bodyweight to set a protein target first, then splits the remaining calories between carbs and fat.
+            </p>
             <FormField
-                control={form.control}
-                name="proteinPerBodyweight"
-                render={({ field }) => (
-                    <FormItem>
-                    <FormLabel>Protein per Bodyweight (g/kg or g/lb)</FormLabel>
-                    <FormControl>
-                        <Input type="number" placeholder="2.2" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                    </FormItem>
-                )}
+              control={form.control}
+              name="proteinPerBodyweight"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Protein per Bodyweight ({form.getValues('unit') === 'metric' ? 'g/kg' : 'g/lb'})</FormLabel>
+                  <FormControl>
+                    <Input type="number" placeholder="2.2" {...field} value={field.value ?? ''} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
             />
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                <FormField
-                    control={form.control}
-                    name="remainingCarbs"
-                    render={({ field }) => (
-                        <FormItem>
-                        <FormLabel>Remaining Carbs (%)</FormLabel>
-                        <FormControl>
-                            <Input type="number" placeholder="50" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                        </FormItem>
-                    )}
-                />
-                <FormField
-                    control={form.control}
-                    name="remainingFat"
-                    render={({ field }) => (
-                        <FormItem>
-                        <FormLabel>Remaining Fat (%)</FormLabel>
-                        <FormControl>
-                            <Input type="number" placeholder="50" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                        </FormItem>
-                    )}
-                />
-            </div>
-        </div>
+
+            <FormField
+              control={form.control}
+              name="remainingCarbs"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Carb / Fat Split</FormLabel>
+                   <FormControl>
+                     <div>
+                        <Slider
+                          defaultValue={[50]}
+                          value={[carbPercentage]}
+                          onValueChange={(value) => {
+                            form.setValue('remainingCarbs', value[0]);
+                            form.setValue('remainingFat', 100 - value[0]);
+                          }}
+                          max={100}
+                          step={5}
+                          className="my-4"
+                        />
+                        <div className="flex justify-between text-sm text-muted-foreground">
+                          <span>{`Carbs: ${carbPercentage}%`}</span>
+                          <span>{`Fat: ${100 - carbPercentage}%`}</span>
+                        </div>
+                     </div>
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
+        )}
 
         <Button type="submit" disabled={loading}>Update Profile</Button>
       </form>

@@ -13,7 +13,7 @@ import { Macros } from '@/types';
 
 export const NutritionDashboard = () => {
   const [selectedDate, setSelectedDate] = useState(new Date());
-  const { log } = useDailyLog(selectedDate);
+  const { log, isLoading } = useDailyLog(selectedDate);
   const { user } = useAuth();
 
   const isProfileComplete = !!user?.userProfile && !!user?.userGoal;
@@ -45,7 +45,7 @@ export const NutritionDashboard = () => {
     <div className="space-y-6">
       <DateSelector date={selectedDate} setDate={setSelectedDate} />
       <MacroSummary current={currentMacros} targets={targets} />
-      <DailyLogTable logEntries={log} />
+      <DailyLogTable logEntries={log} isLoading={isLoading} />
     </div>
   );
 };

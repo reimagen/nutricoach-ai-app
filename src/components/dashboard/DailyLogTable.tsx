@@ -14,9 +14,10 @@ import { MealEntry, MealCategory } from '@/types/meal';
 
 interface DailyLogTableProps {
   logEntries: MealEntry[];
+  isLoading: boolean;
 }
 
-export const DailyLogTable = ({ logEntries }: DailyLogTableProps) => {
+export const DailyLogTable = ({ logEntries, isLoading }: DailyLogTableProps) => {
   const groupedEntries = useMemo(() => {
     if (!logEntries) return {};
     return logEntries.reduce((acc, entry) => {
@@ -30,6 +31,14 @@ export const DailyLogTable = ({ logEntries }: DailyLogTableProps) => {
   }, [logEntries]);
 
   const mealOrder: MealCategory[] = ['breakfast', 'lunch', 'dinner', 'snack'];
+
+  if (isLoading) {
+    return (
+      <div className="text-center p-8 border rounded-lg bg-gray-50/50">
+        <h3 className="text-lg font-semibold">Loading...</h3>
+      </div>
+    );
+  }
 
   if (!logEntries || logEntries.length === 0) {
     return (

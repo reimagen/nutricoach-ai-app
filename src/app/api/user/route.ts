@@ -1,42 +1,42 @@
 
 import { NextResponse } from 'next/server';
-import { User } from '@/types';
-
-// This is a mock API endpoint. In a real application, you would fetch this data from a database.
-const mockUser: User = {
-  userProfile: {
-    name: 'Alex Doe',
-    age: 30,
-    gender: 'male',
-    units: 'imperial', // Let's test the conversion logic!
-    height: 70, // inches
-    weight: 180, // pounds
-    activityLevel: 'light',
-  },
-  userGoal: {
-    type: 'weight-loss',
-  },
-  mealEntries: [
-    {
-      id: '1',
-      name: 'Morning Coffee',
-      timestamp: new Date().toISOString(),
-      macros: { calories: 5, protein: 0, carbs: 1, fat: 0 },
-    },
-    {
-      id: '2',
-      name: 'Chicken Salad',
-      timestamp: new Date().toISOString(),
-      macros: { calories: 350, protein: 40, carbs: 10, fat: 18 },
-    },
-  ],
-};
+import { admin, adminDb } from '@/lib/firebase-admin';
+import { headers } from 'next/headers';
 
 /**
- * Handles GET requests to /api/user.
- * @returns A JSON response with the mock user data.
+ * Handles GET requests to /api/user to fetch the current user's data.
  */
 export async function GET() {
-  // In a real app, you might have authentication and database logic here.
-  return NextResponse.json(mockUser);
+  try {
+    // 1. Get the Authorization header from the request
+    const authorization = headers().get('Authorization');
+    if (!authorization) {
+      return new NextResponse('Unauthorized', { status: 401 });
+    }
+
+    // 2. Verify the ID token from the Authorization header
+    const idToken = authorization.split('Bearer ')[1];
+    const decodedToken = await admin.auth().verifyIdToken(idToken);
+    const uid = decodedToken.uid;
+
+    // 3. Fetch the full user document from Firestore
+    const userDoc = await adminDb.collection('users').doc(uid).get();
+
+    // 4. If the document doesn't exist, return a 404 Not Found response
+    if (!userDoc.exists) {
+      return new NextResponse('User not found in database', { status: 404 });
+    }
+
+    // 5. Extract the data and return it
+    const userData = userDoc.data();
+    return NextResponse.json(userData);
+
+  } catch (error) {
+    console.error("Error fetching user data:", error);
+    // If the token is invalid or expired, a 401 Unauthorized response is appropriate
+    if ((error as any).code === 'auth/id-token-expired' || (error as any).code === 'auth/argument-error') {
+      return new NextResponse('Unauthorized', { status: 401 });
+    }
+    return new NextResponse('Internal Server Error', { status: 500 });
+  }
 }

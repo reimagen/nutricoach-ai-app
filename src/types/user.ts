@@ -2,6 +2,7 @@
 import { Timestamp } from 'firebase/firestore';
 import { RecapMetrics } from './recap';
 import { MacroCalculationStrategy, MacroSplit } from './macros';
+import { ActivityLevel } from '@/constants/activity-levels';
 
 /**
  * Represents the user's core profile information.
@@ -14,7 +15,7 @@ export interface UserProfile {
   units?: 'metric' | 'imperial';
   height?: number;
   weight?: number;
-  activityLevel?: 'sedentary' | 'light' | 'moderate' | 'active' | 'veryActive';
+  activityLevel?: ActivityLevel;
   timezone?: string;
 }
 
@@ -28,10 +29,10 @@ interface UserGoalBase {
 }
 
 /**
- * Goal definition for percentage-based macro calculation.
+ * Goal definition for calories-percentage-based macro calculation.
  */
-export interface PercentageGoal extends UserGoalBase {
-  calculationStrategy: 'percentage';
+export interface CaloriesPercentageGoal extends UserGoalBase {
+  calculationStrategy: 'calories-percentage-based';
   /** The macro split to be used for the calculation. This is optional and may not be present initially. */
   split?: MacroSplit;
 }
@@ -51,7 +52,7 @@ export interface BodyweightGoal extends UserGoalBase {
  * A discriminated union of all possible user goal types.
  * The `calculationStrategy` field determines the shape of the goal object.
  */
-export type UserGoal = PercentageGoal | BodyweightGoal;
+export type UserGoal = CaloriesPercentageGoal | BodyweightGoal;
 
 /**
  * The complete user data model as stored in Firestore.

@@ -42,7 +42,7 @@ export interface MacroSplitRecommendation {
 
 /**
  * Defines the strategy for calculating macronutrient targets.
- * - 'percentage': Based on a percentage split of total calories (e.g., 40/30/30).
+ * - 'calories-percentage-based': Based on a percentage split of total calories (e.g., 40/30/30).
  * - 'bodyweight': Based on grams of protein per unit of bodyweight.
  */
-export type MacroCalculationStrategy = 'percentage' | 'bodyweight';
+export type MacroCalculationStrategy = 'calories-percentage-based' | 'bodyweight';
