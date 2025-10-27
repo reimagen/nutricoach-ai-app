@@ -1,4 +1,3 @@
-
 'use client';
 
 import { ChatSidebar } from '@/components/chat/ChatSidebar';
@@ -6,6 +5,7 @@ import Link from 'next/link';
 import { useAuth } from '@/hooks/useAuth';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
+import { ThemeToggle } from './ThemeToggle';
 
 
 // Function to get initials from the user's name or email
@@ -32,16 +32,19 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         <Link href="/" className="text-lg font-bold">
           NutriCoach AI
         </Link>
-        {user && (
-            <Link href="/profile" passHref>
-                <Button variant="ghost" className="relative h-10 w-10 rounded-full">
-                    <Avatar className="h-10 w-10">
-                    <AvatarImage src={user.userProfile?.avatarUrl || ''} alt="User avatar" />
-                    <AvatarFallback>{getInitials(user)}</AvatarFallback>
-                    </Avatar>
-                </Button>
-            </Link>
-        )}
+        <div className="flex items-center gap-2">
+            <ThemeToggle />
+            {user && (
+                <Link href="/profile" passHref>
+                    <Button variant="ghost" className="relative h-10 w-10 rounded-full">
+                        <Avatar className="h-10 w-10">
+                        <AvatarImage src={user.userProfile?.avatarUrl || ''} alt="User avatar" />
+                        <AvatarFallback>{getInitials(user)}</AvatarFallback>
+                        </Avatar>
+                    </Button>
+                </Link>
+            )}
+        </div>
       </header>
       <div className="flex flex-1 overflow-hidden">
         <main className="flex-1 overflow-y-auto p-4 md:p-6">
