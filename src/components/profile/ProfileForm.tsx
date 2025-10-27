@@ -33,7 +33,7 @@ import {
 import { useAuth } from "@/hooks/useAuth";
 import { useEffect, useState } from "react";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { GOAL_TYPES, ACTIVITY_LEVELS, GOAL_TYPE_DETAILS, GOAL_BASED_PROTEIN_TARGETS } from "@/constants";
+import { GOAL_TYPES, ACTIVITY_LEVELS, GOAL_TYPE_DETAILS, GOAL_BASED_PROTEIN_TARGETS, TIMEZONES } from "@/constants";
 import { updateUser, resetUserProfile } from "@/lib/api/user";
 import { useToast } from "@/hooks/use-toast";
 import { Slider } from "@/components/ui/slider";
@@ -50,6 +50,7 @@ const profileFormSchema = z.object({
   unit: z.enum(['metric', 'imperial'], { required_error: "Please select a unit system." }),
   activityLevel: z.enum(['sedentary', 'light', 'moderate', 'active', 'veryActive'], { required_error: "Please select an activity level." }),
   goalType: z.enum(['weight-loss', 'weight-gain', 'maintenance', 'muscle-gain'], { required_error: "Please select a goal." }),
+  timezone: z.string().optional(),
 
   // Optional fields for bodyweight-based goals
   proteinPerBodyweight: z.coerce.number().optional(),
@@ -77,6 +78,7 @@ export default function ProfileForm() {
       unit: 'metric',
       activityLevel: undefined,
       goalType: undefined,
+      timezone: undefined,
       proteinPerBodyweight: undefined,
       remainingCarbs: 50, // Default to 50/50 split
       remainingFat: 50,
@@ -125,6 +127,7 @@ export default function ProfileForm() {
         proteinPerBodyweight: bodyweightGoal?.proteinPerBodyweight,
         remainingCarbs: bodyweightGoal?.remainingSplit?.carbs ? bodyweightGoal.remainingSplit.carbs * 100 : 50,
         remainingFat: bodyweightGoal?.remainingSplit?.fat ? bodyweightGoal.remainingSplit.fat * 100 : 50,
+        timezone: userProfile?.timezone,
       });
     }
   }, [user?.userProfile, user?.userGoal, form.reset]);
@@ -135,6 +138,18 @@ export default function ProfileForm() {
       form.setValue('proteinPerBodyweight', recommendedProtein);
     }
   }, [goalType, isBodyweightGoal, form]);
+
+  useEffect(() => {
+    // This hook is for auto-detecting and setting the timezone for new users
+    // or users who haven't set a timezone yet.
+    if (user && !user.userProfile?.timezone) {
+      const detectedTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      // We only set the value if it's not already been set by the user (or form.reset)
+      if (detectedTimezone && TIMEZONES.includes(detectedTimezone) && !form.getValues('timezone')) {
+        form.setValue('timezone', detectedTimezone);
+      }
+    }
+  }, [user, form]); // Dependencies: user object and form instance
 
   async function onSubmit(data: ProfileFormValues) {
     if (!user) {
@@ -152,7 +167,8 @@ export default function ProfileForm() {
       goalType,
       proteinPerBodyweight,
       remainingCarbs,
-      remainingFat
+      remainingFat,
+      timezone,
     } = data;
     
     // Recalculate height in case it changed
@@ -172,6 +188,7 @@ export default function ProfileForm() {
       weight,
       unit,
       activityLevel,
+      timezone,
     };
 
     const goalDetails = GOAL_TYPE_DETAILS[goalType];
@@ -470,6 +487,29 @@ export default function ProfileForm() {
             />
           </div>
         )}
+
+        <FormField
+          control={form.control}
+          name="timezone"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Timezone</FormLabel>
+              <Select onValueChange={field.onChange} value={field.value}>
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select your timezone" />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  {TIMEZONES.map(tz => (
+                    <SelectItem key={tz} value={tz}>{tz}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
 
         <div className="flex items-center justify-between">
           <Button type="submit" disabled={loading}>Update Profile</Button>
