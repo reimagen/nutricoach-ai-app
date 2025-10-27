@@ -1,3 +1,4 @@
+
 'use client';
 
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -20,11 +21,21 @@ import {
   SelectTrigger, 
   SelectValue 
 } from "@/components/ui/select";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { useAuth } from "@/hooks/useAuth";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { GOAL_TYPES, ACTIVITY_LEVELS, GOAL_TYPE_DETAILS, GOAL_BASED_PROTEIN_TARGETS } from "@/constants";
-import { updateUser } from "@/lib/api/user";
+import { updateUser, resetUserProfile } from "@/lib/api/user";
 import { useToast } from "@/hooks/use-toast";
 import { Slider } from "@/components/ui/slider";
 import { UserProfile, UserGoal } from "@/types";
@@ -52,6 +63,7 @@ export type ProfileFormValues = z.infer<typeof profileFormSchema>;
 export default function ProfileForm() {
   const { user, loading } = useAuth();
   const { toast } = useToast();
+  const [isResetting, setIsResetting] = useState(false);
 
   const form = useForm<ProfileFormValues>({
     resolver: zodResolver(profileFormSchema),
@@ -81,7 +93,7 @@ export default function ProfileForm() {
   const heightIn = form.watch('heightIn');
 
   useEffect(() => {
-    if (unit === 'imperial') {
+    if (unit === 'imperial' && heightFt !== undefined && heightIn !== undefined) {
       const feet = heightFt || 0;
       const inches = heightIn || 0;
       form.setValue('height', (feet * 12) + inches);
@@ -93,10 +105,10 @@ export default function ProfileForm() {
       const { userProfile, userGoal } = user;
       const bodyweightGoal = userGoal?.calculationStrategy === 'bodyweight' ? userGoal : null;
   
-      let heightFt, heightIn;
+      let heightFtValue, heightInValue;
       if (userProfile?.unit === 'imperial' && userProfile?.height) {
-        heightFt = Math.floor(userProfile.height / 12);
-        heightIn = userProfile.height % 12;
+        heightFtValue = Math.floor(userProfile.height / 12);
+        heightInValue = userProfile.height % 12;
       }
   
       form.reset({
@@ -104,13 +116,13 @@ export default function ProfileForm() {
         gender: userProfile?.gender ?? undefined,
         age: userProfile?.age ?? undefined,
         height: userProfile?.height ?? undefined,
-        heightFt: heightFt,
-        heightIn: heightIn,
+        heightFt: heightFtValue,
+        heightIn: heightInValue,
         weight: userProfile?.weight ?? undefined,
         unit: userProfile?.unit ?? 'metric',
         activityLevel: userProfile?.activityLevel ?? undefined,
         goalType: userGoal?.type ?? undefined,
-        proteinPerBodyweight: bodyweightGoal?.proteinPerBodyweight ?? undefined,
+        proteinPerBodyweight: bodyweightGoal?.proteinPerBodyweight,
         remainingCarbs: bodyweightGoal?.remainingSplit?.carbs ? bodyweightGoal.remainingSplit.carbs * 100 : 50,
         remainingFat: bodyweightGoal?.remainingSplit?.fat ? bodyweightGoal.remainingSplit.fat * 100 : 50,
       });
@@ -161,14 +173,16 @@ export default function ProfileForm() {
     };
     
     if (goalDetails.calculationStrategy === 'bodyweight') {
-      userGoal = {
-        ...userGoal,
-        proteinPerBodyweight: proteinPerBodyweight,
-        remainingSplit: {
-          carbs: (remainingCarbs ?? 50) / 100,
-          fat: (remainingFat ?? 50) / 100,
-        },
-      };
+      if(proteinPerBodyweight) {
+        userGoal = {
+          ...userGoal,
+          proteinPerBodyweight: proteinPerBodyweight,
+          remainingSplit: {
+            carbs: (remainingCarbs ?? 50) / 100,
+            fat: (remainingFat ?? 50) / 100,
+          },
+        };
+      }
     }
 
     try {
@@ -177,6 +191,21 @@ export default function ProfileForm() {
     } catch (error) {
       console.error("Error updating profile: ", error);
       toast({ title: "Error", description: "Failed to update profile. Please try again.", variant: "destructive" });
+    }
+  }
+
+  async function handleReset() {
+    if (!user) return;
+    setIsResetting(true);
+    try {
+      await resetUserProfile(user.uid);
+      form.reset(); // Reset form to default values
+      toast({ title: "Profile Reset", description: "Your profile data has been cleared." });
+    } catch (error) {
+      console.error("Error resetting profile:", error);
+      toast({ title: "Error", description: "Could not reset profile.", variant: "destructive" });
+    } finally {
+      setIsResetting(false);
     }
   }
 
@@ -241,8 +270,17 @@ export default function ProfileForm() {
                 <FormLabel>Units</FormLabel>
                  <FormControl>
                     <RadioGroup
-                      onValueChange={field.onChange}
-                      defaultValue={field.value}
+                      onValueChange={(value) => {
+                        field.onChange(value);
+                        // When units change, clear the other system's height fields
+                        if (value === 'metric') {
+                          form.setValue('heightFt', undefined);
+                          form.setValue('heightIn', undefined);
+                        } else {
+                          form.setValue('height', undefined);
+                        }
+                      }}
+                      value={field.value}
                       className="flex items-center space-x-4"
                     >
                       <FormItem className="flex items-center space-x-2">
@@ -423,8 +461,28 @@ export default function ProfileForm() {
           </div>
         )}
 
-        <Button type="submit" disabled={loading}>Update Profile</Button>
+        <div className="flex items-center justify-between">
+          <Button type="submit" disabled={loading}>Update Profile</Button>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="destructive" disabled={isResetting}>
+                Reset Profile
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This action cannot be undone. This will permanently reset your profile and goal data.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={handleReset}>Yes, reset</AlertDialogAction>
+            </AlertDialogContent>
+          </AlertDialog>
+        </div>
       </form>
     </Form>
   );
 }
+

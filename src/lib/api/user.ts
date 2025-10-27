@@ -69,3 +69,21 @@ export const updateUser = async (uid: string, user: Partial<User>): Promise<void
 
   await batch.commit();
 };
+
+/**
+ * Resets a user's profile and goal data to empty states.
+ * @param uid The user's unique ID.
+ */
+export const resetUserProfile = async (uid: string): Promise<void> => {
+  const batch = writeBatch(db);
+
+  const profileDocRef = doc(db, `users/${uid}/profile`, 'current');
+  // Reset profile but keep timezone
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  batch.set(profileDocRef, { timezone });
+
+  const goalDocRef = doc(db, `users/${uid}/goals`, 'current');
+  batch.set(goalDocRef, {}); // Reset goal to an empty object
+
+  await batch.commit();
+};
