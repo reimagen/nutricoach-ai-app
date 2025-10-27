@@ -34,6 +34,8 @@ const profileFormSchema = z.object({
   gender: z.enum(['male', 'female', 'other'], { required_error: "Please select a gender." }),
   age: z.coerce.number().min(1, { message: "Please enter a valid age." }),
   height: z.coerce.number().min(1, { message: "Please enter a valid height." }),
+  heightFt: z.coerce.number().optional(),
+  heightIn: z.coerce.number().optional(),
   weight: z.coerce.number().min(1, { message: "Please enter a valid weight." }),
   unit: z.enum(['metric', 'imperial'], { required_error: "Please select a unit system." }),
   activityLevel: z.enum(['sedentary', 'light', 'moderate', 'active', 'veryActive'], { required_error: "Please select an activity level." }),
@@ -58,6 +60,8 @@ export default function ProfileForm() {
       gender: undefined,
       age: undefined,
       height: undefined,
+      heightFt: undefined,
+      heightIn: undefined,
       weight: undefined,
       unit: 'metric',
       activityLevel: undefined,
@@ -72,17 +76,36 @@ export default function ProfileForm() {
   const isBodyweightGoal = goalType && GOAL_TYPE_DETAILS[goalType]?.calculationStrategy === 'bodyweight';
 
   const carbPercentage = form.watch('remainingCarbs') ?? 50;
+  const unit = form.watch('unit');
+  const heightFt = form.watch('heightFt');
+  const heightIn = form.watch('heightIn');
 
+  useEffect(() => {
+    if (unit === 'imperial') {
+      const feet = heightFt || 0;
+      const inches = heightIn || 0;
+      form.setValue('height', (feet * 12) + inches);
+    }
+  }, [heightFt, heightIn, unit, form]);
+  
   useEffect(() => {
     if (user) {
       const { userProfile, userGoal } = user;
       const bodyweightGoal = userGoal?.calculationStrategy === 'bodyweight' ? userGoal : null;
-
+  
+      let heightFt, heightIn;
+      if (userProfile?.unit === 'imperial' && userProfile?.height) {
+        heightFt = Math.floor(userProfile.height / 12);
+        heightIn = userProfile.height % 12;
+      }
+  
       form.reset({
         name: userProfile?.name ?? undefined,
         gender: userProfile?.gender ?? undefined,
         age: userProfile?.age ?? undefined,
         height: userProfile?.height ?? undefined,
+        heightFt: heightFt,
+        heightIn: heightIn,
         weight: userProfile?.weight ?? undefined,
         unit: userProfile?.unit ?? 'metric',
         activityLevel: userProfile?.activityLevel ?? undefined,
@@ -93,6 +116,7 @@ export default function ProfileForm() {
       });
     }
   }, [user, form]);
+  
 
   async function onSubmit(data: ProfileFormValues) {
     if (!user) {
@@ -236,27 +260,58 @@ export default function ProfileForm() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-           <FormField
-            control={form.control}
-            name="height"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Height ({form.getValues('unit') === 'metric' ? 'cm' : 'in'})</FormLabel>
-                <FormControl>
-                  <Input type="number" placeholder={form.getValues('unit') === 'metric' ? '175' : '69'} {...field} value={field.value ?? ''} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+        {unit === 'metric' ? (
+            <FormField
+              control={form.control}
+              name="height"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Height (cm)</FormLabel>
+                  <FormControl>
+                    <Input type="number" placeholder="175" {...field} value={field.value ?? ''} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          ) : (
+            <div className="grid grid-cols-2 gap-4">
+              <FormField
+                control={form.control}
+                name="heightFt"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Height (ft)</FormLabel>
+                    <FormControl>
+                      <Input type="number" placeholder="5" {...field} value={field.value ?? ''} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="heightIn"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>(in)</FormLabel>
+                    <FormControl>
+                      <Input type="number" placeholder="9" {...field} value={field.value ?? ''} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+          )}
           <FormField
             control={form.control}
             name="weight"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Weight ({form.getValues('unit') === 'metric' ? 'kg' : 'lbs'})</FormLabel>
+                <FormLabel>Weight ({unit === 'metric' ? 'kg' : 'lbs'})</FormLabel>
                 <FormControl>
-                  <Input type="number" placeholder={form.getValues('unit') === 'metric' ? '70' : '154'} {...field} value={field.value ?? ''} />
+                  <Input type="number" placeholder={unit === 'metric' ? '70' : '154'} {...field} value={field.value ?? ''} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
