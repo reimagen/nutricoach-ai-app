@@ -16,7 +16,7 @@ export const lbsToKg = (lbs: number): number => {
  * @returns The user's weight in kg, or 0 if not available.
  */
 export const getWeightInKg = (profile: UserProfile): number => {
-  const { weight, units } = profile;
+  const { weight, unit } = profile;
   if (!weight) return 0;
-  return units === 'imperial' ? lbsToKg(weight) : weight;
+  return unit === 'imperial' ? lbsToKg(weight) : weight;
 };

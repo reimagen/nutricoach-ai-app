@@ -25,7 +25,17 @@ export const calculateMacrosByBodyweight = (
   }
 
   // 1. Calculate and round protein grams first to ensure consistency.
-  const roundedProteinInGrams = Math.round(weightInKg * goal.proteinPerBodyweight);
+  let proteinGrams;
+  if (profile.unit === 'imperial') {
+    // If units are imperial, proteinPerBodyweight is in g/lb, so we need the weight in lbs.
+    proteinGrams = (profile.weight || 0) * goal.proteinPerBodyweight;
+  } else {
+    // Otherwise, it's in g/kg.
+    proteinGrams = weightInKg * goal.proteinPerBodyweight;
+  }
+  const roundedProteinInGrams = Math.round(proteinGrams);
+
+
   const proteinCalories = roundedProteinInGrams * PROTEIN_CALORIES_PER_GRAM;
 
   // 2. Calculate remaining calories based on the definite protein calorie value.

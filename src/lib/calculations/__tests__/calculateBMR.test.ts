@@ -9,7 +9,7 @@ describe('calculateBMR', () => {
       gender: 'male',
       weight: 80,
       height: 180,
-      units: 'metric',
+      unit: 'metric',
     };
     // Mifflin-St Jeor Equation: (10 * 80) + (6.25 * 180) - (5 * 30) + 5 = 800 + 1125 - 150 + 5 = 1780
     expect(calculateBMR(userProfile)).toBe(1780);
@@ -21,7 +21,7 @@ describe('calculateBMR', () => {
       gender: 'female',
       weight: 135, // lbs
       height: 65, // inches
-      units: 'imperial',
+      unit: 'imperial',
     };
     // Convert to metric: weight = 135 * 0.453592 = 61.23492 kg, height = 65 * 2.54 = 165.1 cm
     // Mifflin-St Jeor Equation: (10 * 61.23492) + (6.25 * 165.1) - (5 * 25) - 161 = 612.3492 + 1031.875 - 125 - 161 = 1358.2242
@@ -35,7 +35,7 @@ describe('calculateBMR', () => {
       gender: 'other',
       weight: 135, // lbs
       height: 65, // inches
-      units: 'imperial',
+      unit: 'imperial',
     };
     // The expected value should be the same as the female calculation
     // Convert to metric: weight = 135 * 0.453592 = 61.23492 kg, height = 65 * 2.54 = 165.1 cm
@@ -49,7 +49,7 @@ describe('calculateBMR', () => {
       age: 30,
       gender: 'male',
       height: 180,
-      units: 'metric',
+      unit: 'metric',
     };
     expect(calculateBMR(userProfile as UserProfile)).toBe(0);
   });
@@ -59,7 +59,7 @@ describe('calculateBMR', () => {
       age: 30,
       gender: 'male',
       weight: 80,
-      units: 'metric',
+      unit: 'metric',
     };
     expect(calculateBMR(userProfile as UserProfile)).toBe(0);
   });
@@ -69,7 +69,7 @@ describe('calculateBMR', () => {
       gender: 'male',
       weight: 80,
       height: 180,
-      units: 'metric',
+      unit: 'metric',
     };
     expect(calculateBMR(userProfile as UserProfile)).toBe(0);
   });
@@ -79,7 +79,7 @@ describe('calculateBMR', () => {
       age: 30,
       weight: 80,
       height: 180,
-      units: 'metric',
+      unit: 'metric',
     };
     expect(calculateBMR(userProfile as UserProfile)).toBe(0);
   });

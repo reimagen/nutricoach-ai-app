@@ -23,7 +23,7 @@ import {
 import { useAuth } from "@/hooks/useAuth";
 import { useEffect } from "react";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { GOAL_TYPES, ACTIVITY_LEVELS, GOAL_TYPE_DETAILS } from "@/constants";
+import { GOAL_TYPES, ACTIVITY_LEVELS, GOAL_TYPE_DETAILS, GOAL_BASED_PROTEIN_TARGETS } from "@/constants";
 import { updateUser } from "@/lib/api/user";
 import { useToast } from "@/hooks/use-toast";
 import { Slider } from "@/components/ui/slider";
@@ -117,6 +117,12 @@ export default function ProfileForm() {
     }
   }, [user, form]);
   
+  useEffect(() => {
+    if (goalType && isBodyweightGoal) {
+      const recommendedProtein = GOAL_BASED_PROTEIN_TARGETS[goalType]?.target ?? 1.2;
+      form.setValue('proteinPerBodyweight', recommendedProtein);
+    }
+  }, [goalType, isBodyweightGoal, form]);
 
   async function onSubmit(data: ProfileFormValues) {
     if (!user) {

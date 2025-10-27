@@ -16,7 +16,7 @@ export const inchesToCm = (inches: number): number => {
  * @returns The user's height in cm, or 0 if not available.
  */
 export const getHeightInCm = (profile: UserProfile): number => {
-  const { height, units } = profile;
+  const { height, unit } = profile;
   if (!height) return 0;
-  return units === 'imperial' ? inchesToCm(height) : height;
+  return unit === 'imperial' ? inchesToCm(height) : height;
 };

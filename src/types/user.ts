@@ -12,7 +12,7 @@ export interface UserProfile {
   name?: string;
   age?: number;
   gender?: 'male' | 'female' | 'other';
-  units?: 'metric' | 'imperial';
+  unit?: 'metric' | 'imperial';
   height?: number;
   weight?: number;
   activityLevel?: ActivityLevel;
