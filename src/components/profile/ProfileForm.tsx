@@ -47,7 +47,7 @@ import { useEffect, useState } from "react";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { GOAL_TYPES, ACTIVITY_LEVELS, GOAL_TYPE_DETAILS, GOAL_BASED_PROTEIN_TARGETS, TIMEZONES } from "@/constants";
 import { updateUser, resetUserProfile } from "@/lib/api/user";
-import { useToast } from "@/components/ui/use-toast";
+import { useToast } from "@/hooks/use-toast";
 import { Slider } from "@/components/ui/slider";
 import { UserProfile, UserGoal, BodyweightGoal } from "@/types";
 import { ChevronsUpDown, Check } from "lucide-react";
