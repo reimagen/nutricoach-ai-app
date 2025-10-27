@@ -21,6 +21,18 @@ import {
   SelectValue 
 } from "@/components/ui/select";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+} from "@/components/ui/command";
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -38,6 +50,8 @@ import { updateUser, resetUserProfile } from "@/lib/api/user";
 import { useToast } from "@/hooks/use-toast";
 import { Slider } from "@/components/ui/slider";
 import { UserProfile, UserGoal, BodyweightGoal } from "@/types";
+import { ChevronsUpDown, Check } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 const profileFormSchema = z.object({
   name: z.string().min(2, { message: "Name must be at least 2 characters." }),
@@ -64,6 +78,7 @@ export default function ProfileForm() {
   const { user, loading, forceReload } = useAuth();
   const { toast } = useToast();
   const [isResetting, setIsResetting] = useState(false);
+  const [timezoneOpen, setTimezoneOpen] = useState(false);
 
   const form = useForm<ProfileFormValues>({
     resolver: zodResolver(profileFormSchema),
@@ -102,33 +117,32 @@ export default function ProfileForm() {
   }, [heightFt, heightIn, unit, form]);
   
   useEffect(() => {
-    // Only reset the form if the user's profile data has been loaded
     if (user?.userProfile || user?.userGoal) {
-      const { userProfile, userGoal } = user;
-      const bodyweightGoal = userGoal?.calculationStrategy === 'bodyweight' ? (userGoal as BodyweightGoal) : null;
-  
-      let heightFtValue, heightInValue;
-      if (userProfile?.unit === 'imperial' && userProfile?.height) {
-        heightFtValue = Math.floor(userProfile.height / 12);
-        heightInValue = userProfile.height % 12;
-      }
-  
-      form.reset({
-        name: userProfile?.name ?? '',
-        gender: userProfile?.gender,
-        age: userProfile?.age,
-        height: userProfile?.height,
-        heightFt: heightFtValue,
-        heightIn: heightInValue,
-        weight: userProfile?.weight,
-        unit: userProfile?.unit ?? 'metric',
-        activityLevel: userProfile?.activityLevel,
-        goalType: userGoal?.type,
-        proteinPerBodyweight: bodyweightGoal?.proteinPerBodyweight,
-        remainingCarbs: bodyweightGoal?.remainingSplit?.carbs ? bodyweightGoal.remainingSplit.carbs * 100 : 50,
-        remainingFat: bodyweightGoal?.remainingSplit?.fat ? bodyweightGoal.remainingSplit.fat * 100 : 50,
-        timezone: userProfile?.timezone,
-      });
+        const { userProfile, userGoal } = user;
+        const bodyweightGoal = userGoal?.calculationStrategy === 'bodyweight' ? (userGoal as BodyweightGoal) : null;
+
+        let heightFtValue, heightInValue;
+        if (userProfile?.unit === 'imperial' && userProfile?.height) {
+            heightFtValue = Math.floor(userProfile.height / 12);
+            heightInValue = userProfile.height % 12;
+        }
+
+        form.reset({
+            name: userProfile?.name ?? '',
+            gender: userProfile?.gender,
+            age: userProfile?.age,
+            height: userProfile?.height,
+            heightFt: heightFtValue,
+            heightIn: heightInValue,
+            weight: userProfile?.weight,
+            unit: userProfile?.unit ?? 'metric',
+            activityLevel: userProfile?.activityLevel,
+            goalType: userGoal?.type,
+            proteinPerBodyweight: bodyweightGoal?.proteinPerBodyweight,
+            remainingCarbs: bodyweightGoal?.remainingSplit?.carbs ? bodyweightGoal.remainingSplit.carbs * 100 : 50,
+            remainingFat: bodyweightGoal?.remainingSplit?.fat ? bodyweightGoal.remainingSplit.fat * 100 : 50,
+            timezone: userProfile?.timezone,
+        });
     }
   }, [user?.userProfile, user?.userGoal, form.reset]);
   
@@ -492,20 +506,57 @@ export default function ProfileForm() {
           control={form.control}
           name="timezone"
           render={({ field }) => (
-            <FormItem>
+            <FormItem className="flex flex-col">
               <FormLabel>Timezone</FormLabel>
-              <Select onValueChange={field.onChange} value={field.value}>
-                <FormControl>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select your timezone" />
-                  </SelectTrigger>
-                </FormControl>
-                <SelectContent>
-                  {TIMEZONES.map(tz => (
-                    <SelectItem key={tz} value={tz}>{tz}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Popover open={timezoneOpen} onOpenChange={setTimezoneOpen}>
+                <PopoverTrigger asChild>
+                  <FormControl>
+                    <Button
+                      variant="outline"
+                      role="combobox"
+                      className={cn(
+                        "w-[200px] justify-between",
+                        !field.value && "text-muted-foreground"
+                      )}
+                    >
+                      {field.value
+                        ? TIMEZONES.find(
+                            (timezone) => timezone === field.value
+                          )
+                        : "Select timezone"}
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </FormControl>
+                </PopoverTrigger>
+                <PopoverContent className="w-[200px] p-0" align="start">
+                  <Command>
+                    <CommandInput placeholder="Search timezone..." />
+                    <CommandEmpty>No timezone found.</CommandEmpty>
+                    <CommandGroup>
+                      {TIMEZONES.map((timezone) => (
+                        <CommandItem
+                          value={timezone}
+                          key={timezone}
+                          onSelect={() => {
+                            form.setValue("timezone", timezone)
+                            setTimezoneOpen(false)
+                          }}
+                        >
+                          <Check
+                            className={cn(
+                              "mr-2 h-4 w-4",
+                              timezone === field.value
+                                ? "opacity-100"
+                                : "opacity-0"
+                            )}
+                          />
+                          {timezone}
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </Command>
+                </PopoverContent>
+              </Popover>
               <FormMessage />
             </FormItem>
           )}
