@@ -6,18 +6,15 @@ import { onAuthStateChanged, signOut as firebaseSignOut } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
 import { getUser, updateUser as updateUserData } from '@/lib/api';
 import { User } from '@/types';
-import { User as FirebaseUser } from 'firebase/auth';
 import { AuthContextType } from '@/types';
 
-const AuthContext = createContext<AuthContextType>(
-    {
-        user: null,
-        loading: true,
-        updateUser: async () => {},
-        forceReload: () => {},
-        signOut: async () => {},
-    }
-);
+const AuthContext = createContext<AuthContextType>({
+    user: null,
+    loading: true,
+    updateUser: async () => {},
+    forceReload: () => {},
+    signOut: async () => {},
+});
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<AuthContextType['user']>(null);
@@ -39,6 +36,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         setUser({ 
           ...firebaseUser, 
           uid: firebaseUser.uid,
+          email: firebaseUser.email,
           userProfile: undefined,
           userGoal: undefined,
         });

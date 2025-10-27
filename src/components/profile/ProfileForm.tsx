@@ -38,7 +38,7 @@ import { GOAL_TYPES, ACTIVITY_LEVELS, GOAL_TYPE_DETAILS, GOAL_BASED_PROTEIN_TARG
 import { updateUser, resetUserProfile } from "@/lib/api/user";
 import { useToast } from "@/hooks/use-toast";
 import { Slider } from "@/components/ui/slider";
-import { UserProfile, UserGoal } from "@/types";
+import { UserProfile, UserGoal, BodyweightGoal } from "@/types";
 
 const profileFormSchema = z.object({
   name: z.string().min(2, { message: "Name must be at least 2 characters." }),
@@ -61,14 +61,14 @@ const profileFormSchema = z.object({
 export type ProfileFormValues = z.infer<typeof profileFormSchema>;
 
 export default function ProfileForm() {
-  const { user, loading } = useAuth();
+  const { user, loading, forceReload } = useAuth();
   const { toast } = useToast();
   const [isResetting, setIsResetting] = useState(false);
 
   const form = useForm<ProfileFormValues>({
     resolver: zodResolver(profileFormSchema),
     defaultValues: {
-      name: undefined,
+      name: '',
       gender: undefined,
       age: undefined,
       height: undefined,
@@ -96,14 +96,15 @@ export default function ProfileForm() {
     if (unit === 'imperial' && heightFt !== undefined && heightIn !== undefined) {
       const feet = heightFt || 0;
       const inches = heightIn || 0;
-      form.setValue('height', (feet * 12) + inches);
+      form.setValue('height', (feet * 12) + inches, { shouldDirty: true, shouldValidate: true });
     }
   }, [heightFt, heightIn, unit, form]);
   
   useEffect(() => {
-    if (user) {
+    // Only reset the form if the user's profile data has been loaded
+    if (user?.userProfile || user?.userGoal) {
       const { userProfile, userGoal } = user;
-      const bodyweightGoal = userGoal?.calculationStrategy === 'bodyweight' ? userGoal : null;
+      const bodyweightGoal = userGoal?.calculationStrategy === 'bodyweight' ? (userGoal as BodyweightGoal) : null;
   
       let heightFtValue, heightInValue;
       if (userProfile?.unit === 'imperial' && userProfile?.height) {
@@ -112,22 +113,22 @@ export default function ProfileForm() {
       }
   
       form.reset({
-        name: userProfile?.name ?? undefined,
-        gender: userProfile?.gender ?? undefined,
-        age: userProfile?.age ?? undefined,
-        height: userProfile?.height ?? undefined,
+        name: userProfile?.name ?? '',
+        gender: userProfile?.gender,
+        age: userProfile?.age,
+        height: userProfile?.height,
         heightFt: heightFtValue,
         heightIn: heightInValue,
-        weight: userProfile?.weight ?? undefined,
+        weight: userProfile?.weight,
         unit: userProfile?.unit ?? 'metric',
-        activityLevel: userProfile?.activityLevel ?? undefined,
-        goalType: userGoal?.type ?? undefined,
+        activityLevel: userProfile?.activityLevel,
+        goalType: userGoal?.type,
         proteinPerBodyweight: bodyweightGoal?.proteinPerBodyweight,
         remainingCarbs: bodyweightGoal?.remainingSplit?.carbs ? bodyweightGoal.remainingSplit.carbs * 100 : 50,
         remainingFat: bodyweightGoal?.remainingSplit?.fat ? bodyweightGoal.remainingSplit.fat * 100 : 50,
       });
     }
-  }, [user, form]);
+  }, [user?.userProfile, user?.userGoal, form.reset]);
   
   useEffect(() => {
     if (goalType && isBodyweightGoal) {
@@ -167,26 +168,26 @@ export default function ProfileForm() {
     };
 
     const goalDetails = GOAL_TYPE_DETAILS[goalType];
-    let userGoal: UserGoal = {
+    let userGoal: Partial<UserGoal> = { // Use Partial to build the object
       type: goalType,
       calculationStrategy: goalDetails.calculationStrategy,
     };
     
     if (goalDetails.calculationStrategy === 'bodyweight') {
       if(proteinPerBodyweight) {
-        userGoal = {
-          ...userGoal,
+        const bodyweightGoal: Partial<BodyweightGoal> = {
           proteinPerBodyweight: proteinPerBodyweight,
           remainingSplit: {
             carbs: (remainingCarbs ?? 50) / 100,
             fat: (remainingFat ?? 50) / 100,
           },
         };
+        userGoal = {...userGoal, ...bodyweightGoal};
       }
     }
 
     try {
-      await updateUser(user.uid, { userProfile, userGoal });
+      await updateUser(user.uid, { userProfile, userGoal: userGoal as UserGoal });
       toast({ title: "Success!", description: "Your profile has been updated." });
     } catch (error) {
       console.error("Error updating profile: ", error);
@@ -199,7 +200,7 @@ export default function ProfileForm() {
     setIsResetting(true);
     try {
       await resetUserProfile(user.uid);
-      form.reset(); // Reset form to default values
+      await forceReload(); // Force a reload of user data from the hook
       toast({ title: "Profile Reset", description: "Your profile data has been cleared." });
     } catch (error) {
       console.error("Error resetting profile:", error);
@@ -219,7 +220,7 @@ export default function ProfileForm() {
             <FormItem>
               <FormLabel>Name</FormLabel>
               <FormControl>
-                <Input placeholder="Jane Doe" {...field} value={field.value ?? ''} />
+                <Input placeholder="Jane Doe" {...field} />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -281,7 +282,7 @@ export default function ProfileForm() {
                         }
                       }}
                       value={field.value}
-                      className="flex items-center space-x-4"
+                      className="flex items-center space-x-4 pt-2"
                     >
                       <FormItem className="flex items-center space-x-2">
                         <FormControl>
@@ -422,7 +423,7 @@ export default function ProfileForm() {
                 <FormItem>
                   <FormLabel>Protein per Bodyweight ({form.getValues('unit') === 'metric' ? 'g/kg' : 'g/lb'})</FormLabel>
                   <FormControl>
-                    <Input type="number" placeholder="2.2" {...field} value={field.value ?? ''} />
+                    <Input type="number" step="0.1" {...field} value={field.value ?? ''} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -485,4 +486,3 @@ export default function ProfileForm() {
     </Form>
   );
 }
-
