@@ -532,7 +532,7 @@ export default function ProfileForm() {
                   <Command>
                     <CommandInput placeholder="Search timezone..." />
                     <CommandEmpty>No timezone found.</CommandEmpty>
-                    <CommandGroup>
+                    <CommandGroup className="max-h-60 overflow-y-auto">
                       {TIMEZONES.map((timezone) => (
                         <CommandItem
                           value={timezone}
